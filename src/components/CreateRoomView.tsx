@@ -357,9 +357,7 @@ export default function CreateRoomView({
                         </div>
                         <div className="peer-row-meta">
                           <span className="peer-row-name">{peer.name}</span>
-                          <span className="peer-row-host">
-                            {peer.host || 'LAN'}:{peer.port || ''}
-                          </span>
+                          <span className="peer-row-host">Nearby on LAN</span>
                         </div>
                         <div className="peer-row-status-wrap">
                           <span className="peer-online-dot" />

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
-import { ShieldAlert, WifiOff, Search, X } from 'lucide-react';
+import { WifiOff, Search, X } from 'lucide-react';
 import type {
   LocalProfile,
   NetworkStatus,
@@ -204,6 +204,24 @@ export default function App(): React.JSX.Element {
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
     }, 4000);
+  }, []);
+
+  const handleRefreshTechnicalDetails = useCallback(async () => {
+    try {
+      if (window.subnet) {
+        const [latestStatus, latestProfile, latestPeers] = await Promise.all([
+          window.subnet.getNetworkStatus ? window.subnet.getNetworkStatus() : Promise.resolve(null),
+          window.subnet.getProfile ? window.subnet.getProfile() : Promise.resolve(null),
+          window.subnet.getPeers ? window.subnet.getPeers() : Promise.resolve(null),
+        ]);
+        if (latestStatus) setNetworkStatus(latestStatus);
+        if (latestProfile) setProfile(latestProfile);
+        if (Array.isArray(latestPeers)) setPeers(latestPeers);
+      }
+    } catch (err) {
+      console.error('Failed to refresh technical details:', err);
+      throw err;
+    }
   }, []);
 
   // Initial data loading & IPC event subscriptions
@@ -624,18 +642,13 @@ export default function App(): React.JSX.Element {
         {/* Top Header with macOS Draggable Bar and Network Status */}
         <header className="main-topbar">
           <div className="topbar-left">
-            <span className="topbar-transport-badge">
-              <ShieldAlert style={{ width: 13, height: 13, color: '#94a3b8' }} />
-              <span>Direct LAN Transport (Unencrypted WebSocket)</span>
-            </span>
+            <span className="topbar-brand-title">Subnet</span>
           </div>
 
           <div className="topbar-right">
             <span className={`status-dot ${networkStatus?.isRunning ? 'active' : ''}`} />
             <span className="network-status-text">
-              {networkStatus?.isRunning
-                ? `LAN Active • ${networkStatus.localIp || 'Local'}:${networkStatus.port}`
-                : 'Initializing LAN Engine...'}
+              {networkStatus?.isRunning ? 'LAN Active' : 'Initializing LAN Engine...'}
             </span>
           </div>
         </header>
@@ -701,7 +714,11 @@ export default function App(): React.JSX.Element {
             <SettingsView
               localProfile={profile}
               settings={settings}
+              networkStatus={networkStatus}
+              discoveredPeersCount={uniqueRemotePeers.length}
+              connectedPeersCount={networkStatus?.connectedPeerCount}
               onUpdateSettings={handleUpdateSettings}
+              onRefreshTechnicalDetails={handleRefreshTechnicalDetails}
               onClose={() => changeActiveView({ type: 'radar' })}
               onShowToast={showInfoToast}
             />
@@ -854,11 +871,7 @@ export default function App(): React.JSX.Element {
               </span>
             )}
           </div>
-          <div className="footer-right">
-            {profile?.id && (
-              <span>ID: {profile.id.slice(0, 8)}</span>
-            )}
-          </div>
+          <div className="footer-right" />
         </footer>
       </div>
     </div>

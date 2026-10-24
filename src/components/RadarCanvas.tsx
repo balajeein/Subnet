@@ -323,7 +323,7 @@ export default function RadarCanvas({
                 !isMatch ? 'dimmed-by-search' : ''
               }`}
               onClick={(e) => handlePeerClick(peer, e)}
-              title={`Click to chat with ${peer.name} (${peer.host || 'LAN'}:${peer.port || ''})`}
+              title={`Click to chat with ${peer.name}`}
               style={{
                 transform: `translate(${pos.x}px, ${pos.y}px)`,
               }}

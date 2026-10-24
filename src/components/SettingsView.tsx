@@ -8,15 +8,24 @@ import {
   Camera,
   ShieldCheck,
   Sparkles,
+  ChevronDown,
+  ChevronUp,
+  Copy,
+  RefreshCw,
+  Cpu,
 } from 'lucide-react';
-import type { LocalProfile, UserSettings } from '../types/subnet';
+import type { LocalProfile, UserSettings, NetworkStatus } from '../types/subnet';
 import { PRESET_AVATARS, getPresetAvatar } from '../utils/avatars';
 import UserAvatar from './UserAvatar';
 
 interface SettingsViewProps {
   localProfile: LocalProfile | null;
   settings: UserSettings;
+  networkStatus: NetworkStatus | null;
+  discoveredPeersCount: number;
+  connectedPeersCount?: number;
   onUpdateSettings: (newSettings: Partial<UserSettings>) => Promise<UserSettings>;
+  onRefreshTechnicalDetails?: () => Promise<void>;
   onClose: () => void;
   onShowToast: (message: string) => void;
 }
@@ -24,7 +33,11 @@ interface SettingsViewProps {
 export default function SettingsView({
   localProfile,
   settings,
+  networkStatus,
+  discoveredPeersCount,
+  connectedPeersCount,
   onUpdateSettings,
+  onRefreshTechnicalDetails,
   onClose,
   onShowToast,
 }: SettingsViewProps): React.JSX.Element {
@@ -34,6 +47,11 @@ export default function SettingsView({
   const [tempAvatarValue, setTempAvatarValue] = useState<string>(settings.avatarValue);
   const [avatarError, setAvatarError] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Technical Details collapsible state (collapsed by default)
+  const [isTechDetailsOpen, setIsTechDetailsOpen] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     setTempAvatarType(settings.avatarType);
@@ -107,7 +125,54 @@ export default function SettingsView({
     }
   };
 
+  const handleCopy = async (fieldKey: string, value: string, label: string) => {
+    if (!value || value === 'Unavailable') return;
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopiedField(fieldKey);
+      onShowToast(`Copied ${label} to clipboard`);
+      setTimeout(() => {
+        setCopiedField((curr) => (curr === fieldKey ? null : curr));
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy to clipboard:', err);
+      onShowToast(`Failed to copy ${label}`);
+    }
+  };
+
+  const handleRefresh = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isRefreshing || !onRefreshTechnicalDetails) return;
+    setIsRefreshing(true);
+    try {
+      await onRefreshTechnicalDetails();
+      onShowToast('Technical details refreshed');
+    } catch (err: any) {
+      onShowToast(err?.message || 'Failed to refresh technical details');
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
   const currentPreset = settings.avatarType === 'preset' ? getPresetAvatar(settings.avatarValue) : null;
+
+  const localIpDisplay = networkStatus?.localIp || 'Unavailable';
+  const portDisplay = networkStatus?.port ? String(networkStatus.port) : 'Unavailable';
+  const peerIdDisplay = localProfile?.id || 'Unavailable';
+  const networkStatusDisplay = networkStatus
+    ? networkStatus.isRunning
+      ? 'Active'
+      : 'Inactive'
+    : 'Unavailable';
+  const isNetworkActive = Boolean(networkStatus?.isRunning);
+  const discoveredPeersDisplay =
+    typeof discoveredPeersCount === 'number'
+      ? `${discoveredPeersCount} ${discoveredPeersCount === 1 ? 'peer' : 'peers'} discovered`
+      : 'Unavailable';
+  const connectedPeersDisplay =
+    typeof connectedPeersCount === 'number'
+      ? `${connectedPeersCount} ${connectedPeersCount === 1 ? 'peer' : 'peers'} connected`
+      : 'Unavailable';
 
   return (
     <div className="profile-settings-container">
@@ -201,6 +266,193 @@ export default function SettingsView({
           </div>
         </div>
 
+        {/* Technical Details Collapsible Card */}
+        <div className="profile-card technical-details-card">
+          <div
+            className="tech-details-header"
+            role="button"
+            tabIndex={0}
+            onClick={() => setIsTechDetailsOpen((prev) => !prev)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                setIsTechDetailsOpen((prev) => !prev);
+              }
+            }}
+            aria-expanded={isTechDetailsOpen}
+          >
+            <div className="tech-toggle-left">
+              <div className="tech-toggle-icon-wrap">
+                <Cpu style={{ width: 18, height: 18, color: '#38bdf8' }} />
+              </div>
+              <div className="tech-toggle-meta">
+                <h3 className="tech-details-title">General</h3>
+                <p className="tech-details-subtitle">
+                  Diagnostics, local node identifiers, and LAN discovery metrics
+                </p>
+              </div>
+            </div>
+
+            <div className="tech-toggle-actions">
+              {onRefreshTechnicalDetails && (
+                <button
+                  type="button"
+                  className="tech-refresh-btn"
+                  onClick={handleRefresh}
+                  disabled={isRefreshing}
+                  title="Refresh technical diagnostic information"
+                >
+                  <RefreshCw
+                    className={isRefreshing ? 'spinning' : ''}
+                    style={{ width: 13, height: 13 }}
+                  />
+                  <span>{isRefreshing ? 'Refreshing...' : 'Refresh'}</span>
+                </button>
+              )}
+              <div className="tech-chevron-wrap">
+                {isTechDetailsOpen ? (
+                  <ChevronUp style={{ width: 18, height: 18, color: '#94a3b8' }} />
+                ) : (
+                  <ChevronDown style={{ width: 18, height: 18, color: '#94a3b8' }} />
+                )}
+              </div>
+            </div>
+          </div>
+
+          {isTechDetailsOpen && (
+            <div className="tech-details-body">
+              <div className="tech-details-grid">
+                {/* 1. Network Status */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Network Status</span>
+                    <span className="tech-detail-hint">Subnet local networking engine state</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-status-pill">
+                      <span className={`status-dot ${isNetworkActive ? 'active' : ''}`} />
+                      <span className="tech-status-label">{networkStatusDisplay}</span>
+                    </span>
+                  </div>
+                </div>
+
+                {/* 2. Local IP Address */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Local IP Address</span>
+                    <span className="tech-detail-hint">Current LAN IP address used by Subnet</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-code-value">{localIpDisplay}</span>
+                    {localIpDisplay !== 'Unavailable' && (
+                      <button
+                        type="button"
+                        className={`tech-copy-btn ${copiedField === 'ip' ? 'copied' : ''}`}
+                        onClick={() => handleCopy('ip', localIpDisplay, 'Local IP')}
+                        title={copiedField === 'ip' ? 'Copied!' : 'Copy Local IP'}
+                      >
+                        {copiedField === 'ip' ? (
+                          <Check style={{ width: 12, height: 12, color: '#10b981' }} />
+                        ) : (
+                          <Copy style={{ width: 12, height: 12 }} />
+                        )}
+                        <span>{copiedField === 'ip' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 3. Listening Port */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Listening Port</span>
+                    <span className="tech-detail-hint">Local port bound by Subnet WebSocket service</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-code-value">{portDisplay}</span>
+                    {portDisplay !== 'Unavailable' && (
+                      <button
+                        type="button"
+                        className={`tech-copy-btn ${copiedField === 'port' ? 'copied' : ''}`}
+                        onClick={() => handleCopy('port', portDisplay, 'Listening Port')}
+                        title={copiedField === 'port' ? 'Copied!' : 'Copy Port'}
+                      >
+                        {copiedField === 'port' ? (
+                          <Check style={{ width: 12, height: 12, color: '#10b981' }} />
+                        ) : (
+                          <Copy style={{ width: 12, height: 12 }} />
+                        )}
+                        <span>{copiedField === 'port' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 4. Local Peer ID */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Local Peer ID</span>
+                    <span className="tech-detail-hint">Cryptographic identifier for this local device</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-code-value tech-code-id" title={peerIdDisplay}>
+                      {peerIdDisplay}
+                    </span>
+                    {peerIdDisplay !== 'Unavailable' && (
+                      <button
+                        type="button"
+                        className={`tech-copy-btn ${copiedField === 'id' ? 'copied' : ''}`}
+                        onClick={() => handleCopy('id', peerIdDisplay, 'Peer ID')}
+                        title={copiedField === 'id' ? 'Copied!' : 'Copy Peer ID'}
+                      >
+                        {copiedField === 'id' ? (
+                          <Check style={{ width: 12, height: 12, color: '#10b981' }} />
+                        ) : (
+                          <Copy style={{ width: 12, height: 12 }} />
+                        )}
+                        <span>{copiedField === 'id' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. Nearby Peers */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Nearby Peers</span>
+                    <span className="tech-detail-hint">Unique discovered remote Subnet peers on LAN</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-metric-value">{discoveredPeersDisplay}</span>
+                  </div>
+                </div>
+
+                {/* 6. Connected Peers */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Connected Peers</span>
+                    <span className="tech-detail-hint">Successfully connected remote peer sessions</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-metric-value">{connectedPeersDisplay}</span>
+                  </div>
+                </div>
+
+                {/* 7. Transport */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Transport</span>
+                    <span className="tech-detail-hint">Underlying active data transport layer</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-metric-badge">WebSocket over LAN</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Change Picture Modal / Sheet */}
         {isChangingPicture && (
           <div className="invitation-backdrop" onClick={handleCancel}>
@@ -237,8 +489,8 @@ export default function SettingsView({
                     {tempAvatarType === 'preset'
                       ? (getPresetAvatar(tempAvatarValue)?.name || 'Illustrated Preset')
                       : tempAvatarType === 'custom'
-                      ? 'Custom Uploaded Picture'
-                      : 'Default Device Icon'}
+                        ? 'Custom Uploaded Picture'
+                        : 'Default Device Icon'}
                   </p>
                 </div>
               </div>

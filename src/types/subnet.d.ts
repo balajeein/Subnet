@@ -23,6 +23,7 @@ export interface NetworkStatus {
   isRunning: boolean;
   port?: number;
   peerCount: number;
+  connectedPeerCount?: number;
   localIp?: string;
 }
 

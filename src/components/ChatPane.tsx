@@ -394,9 +394,7 @@ export default function ChatPane({
             <div className="chat-status-line">
               <span className={`status-dot ${isPeerOnline ? 'active' : ''}`} />
               <span className="chat-status-text">
-                {isPeerOnline
-                  ? `LAN Connected • ${activePeer.host || '127.0.0.1'}:${activePeer.port || ''}`
-                  : 'Disconnected from LAN'}
+                {isPeerOnline ? 'LAN Connected' : 'Disconnected from LAN'}
               </span>
             </div>
           </div>

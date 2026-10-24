@@ -35,7 +35,7 @@ export default function InvitationModal({
               {invitation.senderName}
             </h3>
             <span className="invitation-device-id">
-              Nearby Device • {invitation.senderId.slice(0, 8)}
+              Nearby Device
             </span>
           </div>
         </div>

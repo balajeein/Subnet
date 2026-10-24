@@ -6506,3 +6506,290 @@ body {
   background: #334155;
   transform: scale(1.03);
 }
+
+/* ==========================================================
+   Technical Details (Profile Screen) & Polished Topbar
+   ========================================================== */
+
+.topbar-brand-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.technical-details-card {
+  padding: 0;
+  overflow: hidden;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.technical-details-card:hover {
+  border-color: rgba(56, 189, 248, 0.25);
+}
+
+.tech-details-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  user-select: none;
+  text-align: left;
+  transition: background 0.18s ease;
+}
+
+.tech-details-header:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.tech-details-header:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: -2px;
+}
+
+.tech-toggle-left {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.tech-toggle-icon-wrap {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: rgba(56, 189, 248, 0.12);
+  border: 1px solid rgba(56, 189, 248, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.tech-toggle-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tech-details-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.1px;
+}
+
+.tech-details-subtitle {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.tech-toggle-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.tech-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.tech-refresh-btn:hover:not(:disabled) {
+  background: rgba(56, 189, 248, 0.15);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: #38bdf8;
+}
+
+.tech-refresh-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.tech-refresh-btn .spinning {
+  animation: techSpin 0.9s linear infinite;
+}
+
+.tech-chevron-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  transition: background 0.18s ease;
+}
+
+.tech-details-header:hover .tech-chevron-wrap {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tech-details-body {
+  padding: 0 22px 22px 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(15, 23, 42, 0.25);
+  animation: techFadeIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.tech-details-grid {
+  display: flex;
+  flex-direction: column;
+}
+
+.tech-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  gap: 16px;
+}
+
+.tech-detail-row:last-child {
+  border-bottom: none;
+  padding-bottom: 4px;
+}
+
+.tech-detail-label-col {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 140px;
+}
+
+.tech-detail-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tech-detail-hint {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.tech-detail-value-col {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  max-width: 60%;
+}
+
+.tech-code-value {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12.5px;
+  color: #38bdf8;
+  background: rgba(56, 189, 248, 0.08);
+  border: 1px solid rgba(56, 189, 248, 0.2);
+  padding: 4px 9px;
+  border-radius: 6px;
+  word-break: break-all;
+}
+
+.tech-code-id {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tech-metric-value {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.tech-metric-badge {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #a78bfa;
+  background: rgba(167, 139, 250, 0.1);
+  border: 1px solid rgba(167, 139, 250, 0.25);
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.tech-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 3px 10px;
+  border-radius: 12px;
+}
+
+.tech-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+  font-size: 11.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.tech-copy-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: var(--text-primary);
+}
+
+.tech-copy-btn.copied {
+  background: rgba(16, 185, 129, 0.15);
+  border-color: rgba(16, 185, 129, 0.35);
+  color: #10b981;
+}
+
+.tech-copy-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+@keyframes techSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes techFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

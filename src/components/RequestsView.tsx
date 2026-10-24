@@ -82,7 +82,7 @@ export default function RequestsView({
                       <span className="request-device-pill">LAN Device</span>
                     </div>
                     <span className="request-time">
-                      ID: {inv.senderId.slice(0, 8)} • {formatTime(inv.timestamp)}
+                      {formatTime(inv.timestamp)}
                     </span>
                   </div>
                 </div>
