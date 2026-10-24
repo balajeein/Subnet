@@ -73,6 +73,7 @@ export interface UserSettings {
   notificationsEnabled: boolean;
   soundEnabled: boolean;
   shareAvatarWithPeers?: boolean;
+  peopleCanFindMe?: boolean;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -83,6 +84,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   notificationsEnabled: true,
   soundEnabled: true,
   shareAvatarWithPeers: true,
+  peopleCanFindMe: true,
 };
 
 export interface ChatStoreData {

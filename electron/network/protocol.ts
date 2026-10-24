@@ -596,7 +596,7 @@ export function validateConversationEnd(data: unknown): ConversationEndPayload |
 export function validateNickname(nickname: unknown): string | null {
   if (typeof nickname !== 'string') return null;
   const trimmed = nickname.trim();
-  if (trimmed.length < 2 || trimmed.length > 30) return null;
+  if (trimmed.length < 3 || trimmed.length > 15) return null;
   if (!NICKNAME_REGEX.test(trimmed)) return null;
   return trimmed;
 }
@@ -696,7 +696,7 @@ export function validateRoomJoinResponse(data: unknown): RoomJoinResponsePayload
         .filter((m: any) => m && typeof m.id === 'string' && typeof m.nickname === 'string')
         .map((m: any) => ({
           id: String(m.id).trim(),
-          nickname: String(m.nickname).trim().slice(0, 30),
+          nickname: String(m.nickname).trim().slice(0, 15),
           isHost: Boolean(m.isHost),
         }));
     }
@@ -735,7 +735,7 @@ export function validateRoomMessage(data: unknown): RoomMessagePayload | null {
       id: d.id.trim(),
       roomId: d.roomId.trim(),
       senderId: d.senderId.trim(),
-      senderNickname: d.senderNickname.trim().slice(0, 30),
+      senderNickname: d.senderNickname.trim().slice(0, 15),
       senderAvatar: validateProfileAvatar(d.senderAvatar),
       text,
       attachment,
@@ -759,7 +759,7 @@ export function validateRoomLeave(data: unknown): RoomLeavePayload | null {
       type: 'room_leave',
       roomId: d.roomId.trim(),
       peerId: d.peerId.trim(),
-      nickname: d.nickname.trim().slice(0, 30),
+      nickname: d.nickname.trim().slice(0, 15),
       timestamp: d.timestamp,
     };
   }
@@ -779,7 +779,7 @@ export function validateRoomMemberUpdate(data: unknown): RoomMemberUpdatePayload
       .filter((m: any) => m && typeof m.id === 'string' && typeof m.nickname === 'string')
       .map((m: any) => ({
         id: String(m.id).trim(),
-        nickname: String(m.nickname).trim().slice(0, 30),
+        nickname: String(m.nickname).trim().slice(0, 15),
         isHost: Boolean(m.isHost),
         avatar: validateProfileAvatar(m.avatar),
       }));

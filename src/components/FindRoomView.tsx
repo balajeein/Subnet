@@ -4,7 +4,6 @@ import {
   VenetianMask,
   Check,
   X,
-  ArrowLeft,
   Radio,
   DoorOpen,
 } from 'lucide-react';
@@ -32,7 +31,6 @@ export default function FindRoomView({
   onOpenRoom,
   onJoinAnonymousRoom,
   onOpenCreateRoom,
-  onCancel,
 }: FindRoomViewProps): React.JSX.Element {
   const [activeTab, setActiveTab] = useState<'private' | 'anonymous'>('private');
 
@@ -63,6 +61,10 @@ export default function FindRoomView({
       setJoinError('Please enter a nickname to join this room');
       return;
     }
+    if (trimmedNick.length < 3 || trimmedNick.length > 15) {
+      setJoinError('Nickname must be between 3 and 15 characters');
+      return;
+    }
 
     setIsJoining(true);
     try {
@@ -73,8 +75,8 @@ export default function FindRoomView({
       } else {
         setJoinError(res.error || 'Failed to join anonymous room');
       }
-    } catch (err: any) {
-      setJoinError(err.message || 'Failed to join anonymous room');
+    } catch {
+      setJoinError('Unable to join anonymous room. Please check the nickname and try again.');
     } finally {
       setIsJoining(false);
     }
@@ -84,15 +86,6 @@ export default function FindRoomView({
     <div className="find-room-container">
       {/* Top Header */}
       <div className="find-room-header">
-        <button
-          type="button"
-          className="create-room-back-btn"
-          onClick={onCancel}
-          title="Back"
-        >
-          <ArrowLeft style={{ width: 16, height: 16 }} />
-          <span>Back</span>
-        </button>
         <h1 className="find-room-title">Find Room</h1>
       </div>
 
@@ -217,10 +210,7 @@ export default function FindRoomView({
               <div className="find-room-empty-state">
                 <Users style={{ width: 36, height: 36, color: '#475569' }} />
                 <h3>No Private Room Invitations</h3>
-                <p>
-                  Private rooms are invitation-only and are not broadcasted publicly to other LAN
-                  devices. When someone nearby invites you, the invitation will appear here.
-                </p>
+                <p>Private rooms are invitation-only. New invitations will appear here.</p>
                 <button
                   type="button"
                   className="btn-primary"
@@ -239,11 +229,8 @@ export default function FindRoomView({
             {discoveredAnonymousRooms.length === 0 ? (
               <div className="find-room-empty-state">
                 <Radio style={{ width: 36, height: 36, color: '#475569' }} />
-                <h3>No Anonymous Rooms on LAN</h3>
-                <p>
-                  No active anonymous rooms were discovered on your local network.
-                  Other devices running Subnet on this Wi-Fi can publish discoverable rooms.
-                </p>
+                <h3>No anonymous room nearby</h3>
+                <p>Anonymous rooms shared by nearby users will appear here.</p>
                 <button
                   type="button"
                   className="btn-primary"
@@ -352,7 +339,7 @@ export default function FindRoomView({
                 <input
                   id="join-nickname-input"
                   type="text"
-                  maxLength={30}
+                  maxLength={15}
                   value={joinNickname}
                   onChange={(e) => setJoinNickname(e.target.value)}
                   className="form-input"
@@ -361,7 +348,7 @@ export default function FindRoomView({
                   required
                 />
                 <span className="form-hint">
-                  Allowed: 2 to 30 characters (letters, numbers, spaces, dashes)
+                  Allowed: 3 to 15 characters (letters, numbers, spaces, dashes)
                 </span>
               </div>
 

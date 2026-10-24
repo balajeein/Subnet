@@ -216,6 +216,7 @@ if (typeof window !== 'undefined' && !(window as any).subnet) {
           'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="96" height="96" viewBox="0 0 96 96"><rect width="96" height="96" rx="48" fill="%23B58AE8"/><circle cx="48" cy="40" r="18" fill="%23FFFFFF"/><path d="M24 80 C24 64 34 58 48 58 C62 58 72 64 72 80 Z" fill="%23FFFFFF"/></svg>',
         defaultAnonymousNickname: '',
         shareAvatarWithPeers: true,
+        peopleCanFindMe: true,
       }),
     updateSettings: (s: any) => Promise.resolve(s),
     getSystemAvatar: () =>

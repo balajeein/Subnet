@@ -165,6 +165,7 @@ export interface UserSettings {
   notificationsEnabled?: boolean;
   soundEnabled?: boolean;
   shareAvatarWithPeers?: boolean;
+  peopleCanFindMe?: boolean;
 }
 
 export interface SubnetAPI {
@@ -270,6 +271,10 @@ export interface SubnetAPI {
     name: string,
     invitedPeerIds: string[]
   ) => Promise<{ success: boolean; roomId?: string; error?: string }>;
+  inviteToPrivateRoom: (
+    roomId: string,
+    peerId: string
+  ) => Promise<{ success: boolean; error?: string }>;
   createAnonymousRoom: (
     name: string,
     capacity?: number,

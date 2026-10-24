@@ -1,6 +1,7 @@
 import React from 'react';
-import { Laptop, MessageSquare, Check, X, CheckCircle2 } from 'lucide-react';
-import type { Invitation } from '../types/subnet';
+import { Check, X, CheckCircle2 } from 'lucide-react';
+import type { ConversationSummary, Invitation, Peer } from '../types/subnet';
+import UserAvatar from './UserAvatar';
 
 export interface ToastItem {
   id: string;
@@ -11,6 +12,8 @@ export interface ToastItem {
 
 interface ToastNotificationProps {
   toasts: ToastItem[];
+  peers: Peer[];
+  conversations: ConversationSummary[];
   processingIds: Set<string>;
   onAccept: (invitation: Invitation) => void;
   onDecline: (invitation: Invitation) => void;
@@ -20,6 +23,8 @@ interface ToastNotificationProps {
 
 export default function ToastNotification({
   toasts,
+  peers,
+  conversations,
   processingIds,
   onAccept,
   onDecline,
@@ -51,23 +56,21 @@ export default function ToastNotification({
         const inv = toast.invitation;
         if (!inv) return null;
         const isProcessing = processingIds.has(inv.id);
+        const senderPeer = peers.find((peer) => peer.id === inv.senderId);
+        const senderAvatar =
+          senderPeer?.avatar ||
+          conversations.find((conversation) => conversation.peerId === inv.senderId)?.peerAvatar;
 
         return (
           <div key={toast.id} className="toast-item toast-invitation">
-            <div className="toast-header">
-              <div className="toast-tag" onClick={onOpenRequests} role="button" tabIndex={0}>
-                <MessageSquare style={{ width: 12, height: 12, color: '#B58AE8' }} />
-                <span>New Chat Request</span>
-              </div>
-              <button
-                type="button"
-                className="toast-close-btn"
-                onClick={() => onDismiss(toast.id)}
-                title="Dismiss toast"
-              >
-                <X style={{ width: 14, height: 14 }} />
-              </button>
-            </div>
+            <button
+              type="button"
+              className="toast-close-btn"
+              onClick={() => onDismiss(toast.id)}
+              title="Dismiss toast"
+            >
+              <X style={{ width: 14, height: 14 }} />
+            </button>
 
             <div
               className="toast-body"
@@ -77,7 +80,14 @@ export default function ToastNotification({
               title="Click to view in Requests"
             >
               <div className="toast-avatar">
-                <Laptop style={{ width: 16, height: 16, color: '#B58AE8' }} />
+                <UserAvatar
+                  avatarType={senderAvatar?.avatarType}
+                  avatarValue={senderAvatar?.avatarValue}
+                  size={36}
+                  name={inv.senderName}
+                  alt={inv.senderName}
+                  fallbackIconColor="#B58AE8"
+                />
               </div>
               <div className="toast-meta">
                 <span className="toast-sender">{inv.senderName}</span>

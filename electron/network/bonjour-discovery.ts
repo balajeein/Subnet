@@ -6,6 +6,7 @@ export interface BonjourDiscoveryOptions {
   localPeerId: string;
   displayName: string;
   port: number;
+  discoverable?: boolean;
 }
 
 export class BonjourDiscovery {
@@ -18,6 +19,7 @@ export class BonjourDiscovery {
   private localPeerId: string;
   private displayName: string;
   private port: number;
+  private discoverable: boolean;
 
   // Track service identity mappings for reliable goodbye / teardown handling
   private serviceFqdnToPeerId: Map<string, string> = new Map();
@@ -36,6 +38,7 @@ export class BonjourDiscovery {
     this.localPeerId = options.localPeerId;
     this.displayName = options.displayName;
     this.port = options.port;
+    this.discoverable = options.discoverable !== false;
   }
 
   /**
@@ -54,23 +57,11 @@ export class BonjourDiscovery {
 
     this.bonjour = new Bonjour();
 
-    // Advertise local Subnet instance on the LAN
-    const instanceName = `Subnet-${this.localPeerId.slice(0, 8)}`;
-    console.log(
-      `[Subnet:Discovery] Publishing service "${instanceName}" on port ${this.port} (type: _${BONJOUR_SERVICE_TYPE}._tcp, peerId: ${this.localPeerId.slice(0, 8)})`
-    );
-
-    this.publishedService = this.bonjour.publish({
-      name: instanceName,
-      type: BONJOUR_SERVICE_TYPE,
-      protocol: 'tcp',
-      port: this.port,
-      txt: {
-        id: this.localPeerId,
-        name: this.displayName,
-        v: PROTOCOL_VERSION,
-      },
-    });
+    if (this.discoverable) {
+      this.publishPeerService();
+    } else {
+      console.log('[Subnet:Discovery] Local visibility is off; not publishing this device');
+    }
 
     // Start browsing for other Subnet peers
     console.log(`[Subnet:Discovery] Starting mDNS browser for _${BONJOUR_SERVICE_TYPE}._tcp.local`);
@@ -127,6 +118,46 @@ export class BonjourDiscovery {
         this.roomBrowser.update();
       }
     }, 3500);
+  }
+
+  public async setDiscoverable(discoverable: boolean): Promise<void> {
+    this.discoverable = discoverable;
+
+    if (!discoverable) {
+      const service = this.publishedService;
+      this.publishedService = null;
+      if (service) {
+        await new Promise<void>((resolve) => service.stop(() => resolve()));
+        console.log('[Subnet:Discovery] Local device is no longer discoverable');
+      }
+      return;
+    }
+
+    if (this.bonjour && !this.publishedService) {
+      this.publishPeerService();
+      console.log('[Subnet:Discovery] Local device is discoverable again');
+    }
+  }
+
+  private publishPeerService(): void {
+    if (!this.bonjour || this.publishedService) return;
+
+    const instanceName = `Subnet-${this.localPeerId.slice(0, 8)}`;
+    console.log(
+      `[Subnet:Discovery] Publishing service "${instanceName}" on port ${this.port} (type: _${BONJOUR_SERVICE_TYPE}._tcp, peerId: ${this.localPeerId.slice(0, 8)})`
+    );
+
+    this.publishedService = this.bonjour.publish({
+      name: instanceName,
+      type: BONJOUR_SERVICE_TYPE,
+      protocol: 'tcp',
+      port: this.port,
+      txt: {
+        id: this.localPeerId,
+        name: this.displayName,
+        v: PROTOCOL_VERSION,
+      },
+    });
   }
 
   public publishAnonymousRoom(room: { id: string; name: string; capacity?: number; occupancy?: number }): void {

@@ -317,6 +317,7 @@ ipcMain.handle('subnet:get-settings', async (): Promise<UserSettings> => {
     notificationsEnabled: true,
     soundEnabled: true,
     shareAvatarWithPeers: true,
+    peopleCanFindMe: true,
   };
 });
 
@@ -349,6 +350,9 @@ ipcMain.handle(
     }
     if (typeof p.shareAvatarWithPeers === 'boolean') {
       cleanPartial.shareAvatarWithPeers = p.shareAvatarWithPeers;
+    }
+    if (typeof p.peopleCanFindMe === 'boolean') {
+      cleanPartial.peopleCanFindMe = p.peopleCanFindMe;
     }
 
     if (connectionManager) {
@@ -456,7 +460,7 @@ ipcMain.handle(
   'subnet:delete-conversation',
   async (_event, peerId: unknown): Promise<{ success: boolean; error?: string }> => {
     if (typeof peerId !== 'string' || !peerId.trim()) {
-      return { success: false, error: 'Invalid peer ID' };
+      return { success: false, error: 'Invalid user ID' };
     }
     if (!connectionManager) {
       return { success: false, error: 'Networking core is not running' };
@@ -473,7 +477,7 @@ ipcMain.handle(
     peerId: unknown
   ): Promise<{ success: boolean; remoteConfirmed: boolean; error?: string }> => {
     if (typeof peerId !== 'string' || !peerId.trim()) {
-      return { success: false, remoteConfirmed: false, error: 'Invalid peer ID' };
+      return { success: false, remoteConfirmed: false, error: 'Invalid user ID' };
     }
     if (!connectionManager) {
       return { success: false, remoteConfirmed: false, error: 'Networking core is not running' };
@@ -541,11 +545,32 @@ ipcMain.handle(
     if (!connectionManager) {
       return { success: false, error: 'Networking core is not running' };
     }
-    return connectionManager.createAnonymousRoom(
-      name.trim(),
-      typeof capacity === 'number' ? capacity : undefined,
-      typeof nickname === 'string' ? nickname : undefined
-    );
+    try {
+      return await connectionManager.createAnonymousRoom(
+        name.trim(),
+        typeof capacity === 'number' ? capacity : undefined,
+        typeof nickname === 'string' ? nickname : undefined
+      );
+    } catch (error) {
+      if (error instanceof Error && error.message.includes('valid nickname')) {
+        return { success: false, error: 'Nickname must be between 3 and 15 characters' };
+      }
+      return { success: false, error: 'Unable to create anonymous room' };
+    }
+  }
+);
+
+ipcMain.handle(
+  'subnet:invite-to-private-room',
+  async (_event, payload: unknown): Promise<{ success: boolean; error?: string }> => {
+    if (!payload || typeof payload !== 'object' || !connectionManager) {
+      return { success: false, error: 'Malformed request' };
+    }
+    const { roomId, peerId } = payload as Record<string, unknown>;
+    if (typeof roomId !== 'string' || !roomId.trim() || typeof peerId !== 'string' || !peerId.trim()) {
+      return { success: false, error: 'Invalid parameters' };
+    }
+    return connectionManager.inviteToPrivateRoom(roomId.trim(), peerId.trim());
   }
 );
 
@@ -883,7 +908,7 @@ ipcMain.handle(
       return { success: false, error: 'Invalid transfer ID' };
     }
     if (typeof targetPeerId !== 'string' || !targetPeerId.trim()) {
-      return { success: false, error: 'Invalid peer ID' };
+      return { success: false, error: 'Invalid user ID' };
     }
 
     return connectionManager.downloadAttachment(

@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
 import {
-  ArrowLeft,
   Upload,
   RotateCcw,
   Check,
@@ -14,6 +13,8 @@ import {
   RefreshCw,
   Cpu,
   User,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import type { LocalProfile, UserSettings, NetworkStatus } from '../types/subnet';
 import { PRESET_AVATARS, getPresetAvatar } from '../utils/avatars';
@@ -27,7 +28,6 @@ interface SettingsViewProps {
   connectedPeersCount?: number;
   onUpdateSettings: (newSettings: Partial<UserSettings>) => Promise<UserSettings>;
   onRefreshTechnicalDetails?: () => Promise<void>;
-  onClose: () => void;
   onShowToast: (message: string) => void;
 }
 
@@ -39,7 +39,6 @@ export default function SettingsView({
   connectedPeersCount,
   onUpdateSettings,
   onRefreshTechnicalDetails,
-  onClose,
   onShowToast,
 }: SettingsViewProps): React.JSX.Element {
   // Modal state for changing profile picture
@@ -120,9 +119,19 @@ export default function SettingsView({
     const nextVal = !current;
     try {
       await onUpdateSettings({ shareAvatarWithPeers: nextVal });
-      onShowToast(nextVal ? 'Avatar sharing enabled for LAN peers' : 'Avatar sharing disabled (peers see pastel initials)');
+      onShowToast(nextVal ? 'Avatar sharing enabled for LAN users' : 'Avatar sharing disabled (users see pastel initials)');
     } catch (err: any) {
       onShowToast(err.message || 'Failed to update sharing preference');
+    }
+  };
+
+  const handleToggleDiscoverability = async () => {
+    const nextValue = settings.peopleCanFindMe === false;
+    try {
+      await onUpdateSettings({ peopleCanFindMe: nextValue });
+      onShowToast(nextValue ? 'People can find you nearby' : 'You are hidden from nearby users');
+    } catch (err: any) {
+      onShowToast(err.message || 'Failed to update visibility');
     }
   };
 
@@ -217,28 +226,20 @@ export default function SettingsView({
   const isNetworkActive = Boolean(networkStatus?.isRunning);
   const discoveredPeersDisplay =
     typeof discoveredPeersCount === 'number'
-      ? `${discoveredPeersCount} ${discoveredPeersCount === 1 ? 'peer' : 'peers'} discovered`
+      ? `${discoveredPeersCount} ${discoveredPeersCount === 1 ? 'user' : 'users'} discovered`
       : 'Unavailable';
   const connectedPeersDisplay =
     typeof connectedPeersCount === 'number'
-      ? `${connectedPeersCount} ${connectedPeersCount === 1 ? 'peer' : 'peers'} connected`
+      ? `${connectedPeersCount} ${connectedPeersCount === 1 ? 'user' : 'users'} connected`
       : 'Unavailable';
 
   return (
     <div className="profile-settings-container">
       {/* Top Header */}
       <div className="profile-settings-header">
-        <button
-          type="button"
-          className="settings-back-btn"
-          onClick={onClose}
-          title="Back to Radar"
-        >
-          <ArrowLeft style={{ width: 18, height: 18 }} />
-        </button>
         <div>
           <h1 className="profile-settings-title">Profile</h1>
-          <p className="profile-settings-subtitle">Manage your local profile picture and network identity</p>
+          <p className="profile-settings-subtitle">Your profile for nearby Subnet users</p>
         </div>
       </div>
 
@@ -266,10 +267,10 @@ export default function SettingsView({
             <div className="profile-hero-info">
               <div className="profile-name-row">
                 <h2 className="profile-display-name">{localProfile?.name || 'Local Mac'}</h2>
-                <span className="profile-device-badge">Read-only Identity</span>
+                <span className="profile-device-badge">Device profile</span>
               </div>
               <p className="profile-identity-desc">
-                Derived from your macOS computer name. Visible to peers on your local network.
+                Your device name is shared when you are discoverable.
               </p>
               <div className="profile-status-desc">
                 {settings.avatarType === 'preset' && currentPreset ? (
@@ -292,19 +293,43 @@ export default function SettingsView({
             </div>
           </div>
 
-          {/* User-Controlled LAN Avatar Sharing Preference */}
+          {/* User preferences */}
           <div className="profile-sharing-row">
             <div className="profile-sharing-info">
-              <span className="profile-sharing-title">Share Profile Photo on Local Network</span>
+              <span className="profile-sharing-title">Share profile photo</span>
               <span className="profile-sharing-subtitle">
-                Allow nearby Subnet peers on LAN to see your avatar. When turned off, peers see your pastel monogram fallback instead.
+                Let nearby users see your avatar.
               </span>
             </div>
-            <label className="apple-switch" title="Toggle profile photo sharing on LAN">
+            <label className="apple-switch" title="Toggle profile photo sharing">
               <input
                 type="checkbox"
                 checked={settings.shareAvatarWithPeers !== false}
                 onChange={handleToggleSharing}
+              />
+              <span className="apple-switch-slider" />
+            </label>
+          </div>
+
+          <div className="profile-sharing-row profile-visibility-row">
+            <div className="profile-sharing-info">
+              <span className="profile-sharing-title profile-preference-title">
+                {settings.peopleCanFindMe === false ? (
+                  <EyeOff style={{ width: 15, height: 15 }} aria-hidden="true" />
+                ) : (
+                  <Eye style={{ width: 15, height: 15 }} aria-hidden="true" />
+                )}
+                <span>People find me</span>
+              </span>
+              <span className="profile-sharing-subtitle">
+                Show this device in New Chat and on the radar.
+              </span>
+            </div>
+            <label className="apple-switch" title="Toggle whether people can find you">
+              <input
+                type="checkbox"
+                checked={settings.peopleCanFindMe !== false}
+                onChange={handleToggleDiscoverability}
               />
               <span className="apple-switch-slider" />
             </label>
@@ -356,7 +381,7 @@ export default function SettingsView({
               <div className="tech-toggle-meta">
                 <h3 className="tech-details-title">General</h3>
                 <p className="tech-details-subtitle">
-                  Diagnostics, local node identifiers, and LAN discovery metrics
+                  Connection details and discovery status
                 </p>
               </div>
             </div>
@@ -394,7 +419,7 @@ export default function SettingsView({
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Network Status</span>
-                    <span className="tech-detail-hint">Subnet local networking engine state</span>
+                      <span className="tech-detail-hint">Current connection state</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-status-pill">
@@ -408,7 +433,7 @@ export default function SettingsView({
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Local IP Address</span>
-                    <span className="tech-detail-hint">Current LAN IP address used by Subnet</span>
+                      <span className="tech-detail-hint">Address used for local connections</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-code-value">{localIpDisplay}</span>
@@ -434,7 +459,7 @@ export default function SettingsView({
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Listening Port</span>
-                    <span className="tech-detail-hint">Local port bound by Subnet WebSocket service</span>
+                      <span className="tech-detail-hint">Port used for local connections</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-code-value">{portDisplay}</span>
@@ -456,11 +481,11 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 4. Local Peer ID */}
+                {/* 4. Local User ID */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
-                    <span className="tech-detail-label">Local Peer ID</span>
-                    <span className="tech-detail-hint">Cryptographic identifier for this local device</span>
+                    <span className="tech-detail-label">Local User ID</span>
+                      <span className="tech-detail-hint">Unique ID for this device</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-code-value tech-code-id" title={peerIdDisplay}>
@@ -470,8 +495,8 @@ export default function SettingsView({
                       <button
                         type="button"
                         className={`tech-copy-btn ${copiedField === 'id' ? 'copied' : ''}`}
-                        onClick={() => handleCopy('id', peerIdDisplay, 'Peer ID')}
-                        title={copiedField === 'id' ? 'Copied!' : 'Copy Peer ID'}
+                        onClick={() => handleCopy('id', peerIdDisplay, 'User ID')}
+                        title={copiedField === 'id' ? 'Copied!' : 'Copy User ID'}
                       >
                         {copiedField === 'id' ? (
                           <Check style={{ width: 12, height: 12, color: '#10b981' }} />
@@ -484,22 +509,22 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 5. Nearby Peers */}
+                {/* 5. Nearby Users */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
-                    <span className="tech-detail-label">Nearby Peers</span>
-                    <span className="tech-detail-hint">Unique discovered remote Subnet peers on LAN</span>
+                    <span className="tech-detail-label">Nearby Users</span>
+                      <span className="tech-detail-hint">Users currently visible nearby</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-metric-value">{discoveredPeersDisplay}</span>
                   </div>
                 </div>
 
-                {/* 6. Connected Peers */}
+                {/* 6. Connected Users */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
-                    <span className="tech-detail-label">Connected Peers</span>
-                    <span className="tech-detail-hint">Successfully connected remote peer sessions</span>
+                    <span className="tech-detail-label">Connected Users</span>
+                      <span className="tech-detail-hint">Active user connections</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-metric-value">{connectedPeersDisplay}</span>
@@ -510,7 +535,7 @@ export default function SettingsView({
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Transport</span>
-                    <span className="tech-detail-hint">Underlying active data transport layer</span>
+                      <span className="tech-detail-hint">Connection method</span>
                   </div>
                   <div className="tech-detail-value-col">
                     <span className="tech-metric-badge">WebSocket over LAN</span>

@@ -235,7 +235,7 @@ export default function RadarCanvas({
       tabIndex={0}
       onKeyDown={handleKeyDown}
       role="region"
-      aria-label="Nearby peer radar canvas. Drag to navigate nearby peers."
+      aria-label="Nearby user radar canvas. Drag to navigate nearby users."
     >
       {/* Side Pan Nudge Indicators when canvas extends beyond viewport */}
       {panX < maxPanX - 10 && outerRadius > containerSize.width / 2 - 40 && (
@@ -269,22 +269,22 @@ export default function RadarCanvas({
           transform: `translate(${panX}px, ${panY}px)`,
         }}
       >
-        {/* Concentric Orbit Guidelines */}
+        {/* Graduated radar field */}
         <div className="radar-grid-rings">
           {Array.from({ length: maxRing }, (_, i) => i + 1).map((ringIdx) => {
             const radius = getRingRadius(ringIdx);
             return (
               <div
                 key={`ring-${ringIdx}`}
-                className={`radar-orbit-ring ring-${ringIdx} ${ringIdx % 2 === 0 ? 'dashed' : ''}`}
+                className={`radar-orbit-ring ring-${ringIdx}`}
                 style={{
                   width: `${radius * 2}px`,
                   height: `${radius * 2}px`,
-                }}
+                  '--ring-delay': `${(ringIdx - 1) * 0.65}s`,
+                } as React.CSSProperties}
               />
             );
           })}
-          {/* Subtle radar animated pulse */}
           <div className="radar-canvas-pulse" />
         </div>
 
@@ -359,10 +359,12 @@ export default function RadarCanvas({
               {/* Peer Meta Box */}
               <div className="radar-peer-meta">
                 <span className="radar-peer-name">{peer.name}</span>
-                <span className="radar-peer-status-tag">
-                  <span className="status-dot active" />
-                  <span>{hasPendingInv ? 'Requesting' : 'Nearby'}</span>
-                </span>
+                {hasPendingInv && (
+                  <span className="radar-peer-status-tag">
+                    <span className="status-dot active" />
+                    <span>Requesting</span>
+                  </span>
+                )}
                 <span className="radar-peer-action-hint">Click to chat</span>
               </div>
             </button>
@@ -373,7 +375,7 @@ export default function RadarCanvas({
       {/* Subtle Drag Hint at Bottom */}
       <div className="radar-drag-hint" aria-hidden="true">
         <Hand style={{ width: 13, height: 13 }} />
-        <span>Drag to explore nearby peers</span>
+        <span>Drag to explore nearby users</span>
       </div>
     </div>
   );

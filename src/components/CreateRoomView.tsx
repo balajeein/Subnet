@@ -3,7 +3,6 @@ import {
   Users,
   VenetianMask,
   Laptop,
-  ArrowLeft,
   Plus,
   Search,
   X,
@@ -102,7 +101,7 @@ export default function CreateRoomView({
 
     if (roomType === 'private') {
       if (selectedPeerIds.size === 0) {
-        setErrorMessage('Select at least one nearby peer to invite to the private room');
+        setErrorMessage('Select at least one nearby user to invite to the private room');
         return;
       }
 
@@ -117,8 +116,8 @@ export default function CreateRoomView({
         } else {
           setErrorMessage(res.error || 'Failed to create private room');
         }
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Failed to create private room');
+      } catch {
+        setErrorMessage('Unable to create private room. Please check the room details and try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -126,6 +125,10 @@ export default function CreateRoomView({
       const trimmedNick = anonNickname.trim();
       if (!trimmedNick) {
         setErrorMessage('Please enter a nickname for the anonymous room');
+        return;
+      }
+      if (trimmedNick.length < 3 || trimmedNick.length > 15) {
+        setErrorMessage('Nickname must be between 3 and 15 characters');
         return;
       }
 
@@ -142,8 +145,8 @@ export default function CreateRoomView({
         } else {
           setErrorMessage(res.error || 'Failed to create anonymous room');
         }
-      } catch (err: any) {
-        setErrorMessage(err.message || 'Failed to create anonymous room');
+      } catch {
+        setErrorMessage('Unable to create anonymous room. Please check the room details and try again.');
       } finally {
         setIsSubmitting(false);
       }
@@ -154,15 +157,6 @@ export default function CreateRoomView({
     <div className="create-room-container">
       {/* Top action header */}
       <div className="create-room-header">
-        <button
-          type="button"
-          className="create-room-back-btn"
-          onClick={onCancel}
-          title="Back"
-        >
-          <ArrowLeft style={{ width: 16, height: 16 }} />
-          <span>Back</span>
-        </button>
         <h1 className="create-room-title">Create Room</h1>
       </div>
 
@@ -180,7 +174,7 @@ export default function CreateRoomView({
             <Users style={{ width: 18, height: 18 }} />
             <div className="tab-text">
               <span className="tab-title">Private Room</span>
-              <span className="tab-desc">Invitation-only group chat</span>
+              <span className="tab-desc">Invitation only</span>
             </div>
           </button>
 
@@ -195,7 +189,7 @@ export default function CreateRoomView({
             <VenetianMask style={{ width: 18, height: 18 }} />
             <div className="tab-text">
               <span className="tab-title">Anonymous Room</span>
-              <span className="tab-desc">LAN-discoverable with pseudonyms</span>
+              <span className="tab-desc">Anyone can join</span>
             </div>
           </button>
         </div>
@@ -216,7 +210,7 @@ export default function CreateRoomView({
               id="room-name-input"
               type="text"
               className="form-input"
-              placeholder={roomType === 'private' ? 'e.g. Design Sync, Team Alpha' : 'e.g. Watercooler, Off-Topic'}
+              placeholder="Enter room name"
               value={roomName}
               onChange={(e) => setRoomName(e.target.value)}
               maxLength={80}
@@ -254,13 +248,13 @@ export default function CreateRoomView({
                   id="peer-search-input"
                   type="text"
                   className="peer-search-input"
-                  placeholder="Search discovered peers by name..."
+                  placeholder="Search Users"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === 'Escape') setSearchQuery('');
                   }}
-                  aria-label="Search discovered peers by name"
+                  aria-label="Search Users"
                 />
                 {searchQuery.trim().length > 0 && (
                   <button
@@ -278,13 +272,13 @@ export default function CreateRoomView({
               {availablePeers.length === 0 ? (
                 <div className="no-peers-box">
                   <Laptop style={{ width: 22, height: 22, color: '#64748b' }} />
-                  <p>No nearby peers discovered on your LAN yet.</p>
+                  <p>No nearby users discovered on your LAN yet.</p>
                   <span>Open Subnet on another device on this Wi-Fi network to invite them.</span>
                 </div>
               ) : filteredPeers.length === 0 ? (
                 <div className="no-peers-box search-empty">
                   <Search style={{ width: 22, height: 22, color: '#64748b' }} />
-                  <p>No peers match "{searchQuery}"</p>
+                  <p>No users match "{searchQuery}"</p>
                   <span>Check for typos or try searching with a different display name.</span>
                   <button
                     type="button"
@@ -295,7 +289,7 @@ export default function CreateRoomView({
                   </button>
                 </div>
               ) : (
-                <div className="peers-checklist scrollable" role="listbox" aria-label="Discovered peers">
+                <div className="peers-checklist" role="listbox" aria-label="Discovered users">
                   {filteredPeers.map((peer) => {
                     const isChecked = selectedPeerIds.has(peer.id);
                     return (
@@ -330,7 +324,7 @@ export default function CreateRoomView({
                         </div>
                         <div className="peer-row-meta">
                           <span className="peer-row-name">{peer.name}</span>
-                          <span className="peer-row-host">Nearby on LAN</span>
+                          <span className="peer-row-host">nearby</span>
                         </div>
                         <div className="peer-row-status-wrap">
                           <span className="peer-online-dot" />
@@ -350,7 +344,7 @@ export default function CreateRoomView({
             </div>
           ) : (
             <>
-              {/* Anonymous Room: Chosen Nickname & Unlimited Participants Notice */}
+              {/* Anonymous Room: Chosen Nickname */}
               <div className="form-group">
                 <label htmlFor="anon-nick-input" className="form-label">
                   Your Room Nickname
@@ -358,11 +352,11 @@ export default function CreateRoomView({
                 <input
                   id="anon-nick-input"
                   type="text"
-                  maxLength={30}
+                  maxLength={15}
                   value={anonNickname}
                   onChange={(e) => setAnonNickname(e.target.value)}
                   className="form-input"
-                  placeholder="Enter your room nickname"
+                  placeholder="Enter your nickname"
                   required
                 />
                 <span className="form-hint">
@@ -370,17 +364,6 @@ export default function CreateRoomView({
                 </span>
               </div>
 
-              {/* Unlimited LAN Participants Disclosure */}
-              <div className="anon-unlimited-notice">
-                <Users style={{ width: 16, height: 16, color: '#B58AE8', flexShrink: 0 }} />
-                <div className="notice-content">
-                  <strong>Unlimited LAN Participants:</strong>
-                  <p>
-                    Any nearby device running Subnet on this Wi-Fi network can discover and join this room.
-                    All authorized participants can exchange messages with dynamic member updates and bounded backpressure.
-                  </p>
-                </div>
-              </div>
             </>
           )}
 
@@ -408,8 +391,8 @@ export default function CreateRoomView({
                 {isSubmitting
                   ? 'Creating...'
                   : roomType === 'private'
-                  ? 'Create Private Room'
-                  : 'Create Anonymous Room'}
+                    ? 'Create Private Room'
+                    : 'Create Anonymous Room'}
               </span>
             </button>
           </div>

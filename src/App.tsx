@@ -31,15 +31,6 @@ export default function App(): React.JSX.Element {
   const [rooms, setRooms] = useState<RoomSummary[]>([]);
   const [discoveredRooms, setDiscoveredRooms] = useState<DiscoveredRoom[]>([]);
 
-  // Sidebar collapse state with localStorage persistence
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
-    try {
-      return localStorage.getItem('subnet_sidebar_collapsed') === 'true';
-    } catch {
-      return false;
-    }
-  });
-
   // Active view state
   const [activeView, setActiveView] = useState<ActiveView>(() => {
     try {
@@ -63,6 +54,7 @@ export default function App(): React.JSX.Element {
     theme: 'system',
     notificationsEnabled: true,
     soundEnabled: true,
+    peopleCanFindMe: true,
   });
 
   // Toast notifications in top-right
@@ -112,29 +104,6 @@ export default function App(): React.JSX.Element {
     }
     return list;
   }, [conversations]);
-
-  // Save sidebar collapse preference
-  const handleToggleSidebar = () => {
-    setIsSidebarCollapsed((prev) => {
-      const next = !prev;
-      try {
-        localStorage.setItem('subnet_sidebar_collapsed', String(next));
-      } catch {}
-      return next;
-    });
-  };
-
-  // Keyboard shortcut (⌘B / Ctrl+B) to toggle sidebar
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'b') {
-        e.preventDefault();
-        handleToggleSidebar();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
 
   // Save last view state
   const changeActiveView = useCallback((newView: ActiveView) => {
@@ -193,7 +162,7 @@ export default function App(): React.JSX.Element {
     setToasts((prev) => [...prev, { id, type: 'info', message }]);
     setTimeout(() => {
       setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
+    }, 3000);
   }, []);
 
   const handleRefreshTechnicalDetails = useCallback(async () => {
@@ -339,6 +308,15 @@ export default function App(): React.JSX.Element {
     if (window.subnet?.onPeerLost) {
       const unsub = window.subnet.onPeerLost((lostPeerId: string) => {
         setPeers((prev) => prev.filter((p) => p.id !== lostPeerId));
+        setConversations((prev) =>
+          prev.filter(
+            (conversation) =>
+              !(conversation.peerId === lostPeerId && conversation.status === 'pending_incoming')
+          )
+        );
+        setToasts((prev) =>
+          prev.filter((toast) => toast.invitation?.senderId !== lostPeerId)
+        );
       });
       cleanups.push(unsub);
     }
@@ -380,7 +358,7 @@ export default function App(): React.JSX.Element {
 
     if (window.subnet?.onConversationEnded) {
       const unsub = window.subnet.onConversationEnded((data) => {
-        showInfoToast('Conversation was ended by peer');
+        showInfoToast('Conversation was ended by user');
         setActiveView((current) => {
           if (current.type === 'chat' && current.peerId === data.peerId) {
             try {
@@ -422,14 +400,13 @@ export default function App(): React.JSX.Element {
               return prev;
             }
             return [
-              ...prev,
-              {
-                id: invitation.id,
-                type: 'invitation',
-                invitation,
-              },
+              ...prev.filter((toast) => toast.type !== 'invitation'),
+              { id: invitation.id, type: 'invitation', invitation },
             ];
           });
+          window.setTimeout(() => {
+            setToasts((prev) => prev.filter((toast) => toast.id !== invitation.id));
+          }, 3000);
         }
       });
       cleanups.push(unsub);
@@ -519,7 +496,7 @@ export default function App(): React.JSX.Element {
           }
         } else {
           showInfoToast(
-            res.error || 'Could not end conversation: peer is unreachable on LAN'
+            res.error || 'Could not end conversation: user is unreachable on LAN'
           );
         }
       }
@@ -593,6 +570,8 @@ export default function App(): React.JSX.Element {
       {/* Non-blocking top-right notification toasts */}
       <ToastNotification
         toasts={toasts}
+        peers={peers}
+        conversations={conversations}
         processingIds={processingIds}
         onAccept={handleAcceptInvitation}
         onDecline={handleDeclineInvitation}
@@ -602,8 +581,6 @@ export default function App(): React.JSX.Element {
 
       {/* ChatGPT-style Left Sidebar */}
       <Sidebar
-        isCollapsed={isSidebarCollapsed}
-        onToggleCollapse={handleToggleSidebar}
         activeView={activeView}
         onSelectRadar={() => changeActiveView({ type: 'radar' })}
         onSelectCreateRoom={() => changeActiveView({ type: 'create-room' })}
@@ -629,17 +606,10 @@ export default function App(): React.JSX.Element {
 
       {/* Main Content Area */}
       <div className="subnet-main-content">
-        {/* Top Header with macOS Draggable Bar and Network Status */}
+        {/* Top Header with macOS Draggable Bar */}
         <header className="main-topbar">
           <div className="topbar-left">
             <span className="topbar-brand-title">Subnet</span>
-          </div>
-
-          <div className="topbar-right">
-            <span className={`status-dot ${networkStatus?.isRunning ? 'active' : ''}`} />
-            <span className="network-status-text">
-              {networkStatus?.isRunning ? 'LAN Active' : 'Initializing LAN Engine...'}
-            </span>
           </div>
         </header>
 
@@ -651,7 +621,6 @@ export default function App(): React.JSX.Element {
               localProfile={profile}
               isPeerOnline={peers.some((p) => p.id === activeChatPeer.id)}
               conversation={activeConversation}
-              onClose={() => changeActiveView({ type: 'radar' })}
               onAcceptInvitation={() => {
                 if (activeConversation?.pendingInvitation) {
                   handleAcceptInvitation(activeConversation.pendingInvitation);
@@ -667,6 +636,7 @@ export default function App(): React.JSX.Element {
             <RoomChatPane
               room={activeRoom}
               localProfile={profile}
+              discoveredPeers={peers}
               onClose={() => changeActiveView({ type: 'radar' })}
               onLeaveRoom={handleDeleteRoom}
             />
@@ -695,6 +665,8 @@ export default function App(): React.JSX.Element {
           ) : activeView.type === 'requests' ? (
             <RequestsView
               requests={pendingRequests}
+              peers={peers}
+              conversations={conversations}
               processingIds={processingIds}
               onAccept={handleAcceptInvitation}
               onDecline={handleDeclineInvitation}
@@ -709,7 +681,6 @@ export default function App(): React.JSX.Element {
               connectedPeersCount={networkStatus?.connectedPeerCount}
               onUpdateSettings={handleUpdateSettings}
               onRefreshTechnicalDetails={handleRefreshTechnicalDetails}
-              onClose={() => changeActiveView({ type: 'radar' })}
               onShowToast={showInfoToast}
             />
           ) : (
@@ -728,7 +699,7 @@ export default function App(): React.JSX.Element {
                   <input
                     type="text"
                     className="radar-search-input"
-                    placeholder="Search nearby peers by name..."
+                    placeholder="Search Users"
                     value={radarSearchQuery}
                     onFocus={() => setIsSearchOpen(true)}
                     onClick={() => setIsSearchOpen(true)}
@@ -743,7 +714,7 @@ export default function App(): React.JSX.Element {
                         (e.target as HTMLInputElement).blur();
                       }
                     }}
-                    aria-label="Search nearby peers"
+                    aria-label="Search Users"
                   />
                   {radarSearchQuery && (
                     <button
@@ -766,7 +737,7 @@ export default function App(): React.JSX.Element {
                   <div className="radar-search-dropdown" role="listbox" aria-label="Search results">
                     {filteredPeers.length === 0 ? (
                       <div className="radar-dropdown-empty">
-                        <span>No peers match "{radarSearchQuery}"</span>
+                        <span>No users match "{radarSearchQuery}"</span>
                       </div>
                     ) : (
                       filteredPeers.map((peer) => {
@@ -845,24 +816,23 @@ export default function App(): React.JSX.Element {
         </div>
 
         {/* Footer info strip */}
-        <footer className="main-footer-bar">
-          <div className="footer-left">
-            <span>
-              {uniqueRemotePeers.length} {uniqueRemotePeers.length === 1 ? 'peer' : 'peers'} nearby on LAN
-            </span>
-            {pendingRequests.length > 0 && (
-              <span className="footer-requests-indicator" onClick={() => changeActiveView({ type: 'requests' })}>
-                • {pendingRequests.length} pending {pendingRequests.length === 1 ? 'request' : 'requests'}
-              </span>
-            )}
-            {rooms.length > 0 && (
-              <span className="footer-requests-indicator" onClick={() => changeActiveView({ type: 'find-room' })}>
-                • {rooms.length} {rooms.length === 1 ? 'room' : 'rooms'} joined
-              </span>
-            )}
-          </div>
-          <div className="footer-right" />
-        </footer>
+        {(pendingRequests.length > 0 || rooms.length > 0) && (
+          <footer className="main-footer-bar">
+            <div className="footer-left">
+              {pendingRequests.length > 0 && (
+                <span className="footer-requests-indicator" onClick={() => changeActiveView({ type: 'requests' })}>
+                  • {pendingRequests.length} pending {pendingRequests.length === 1 ? 'request' : 'requests'}
+                </span>
+              )}
+              {rooms.length > 0 && (
+                <span className="footer-requests-indicator" onClick={() => changeActiveView({ type: 'find-room' })}>
+                  • {rooms.length} {rooms.length === 1 ? 'room' : 'rooms'} joined
+                </span>
+              )}
+            </div>
+            <div className="footer-right" />
+          </footer>
+        )}
       </div>
     </div>
   );

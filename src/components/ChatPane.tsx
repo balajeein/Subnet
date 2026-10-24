@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
-  ArrowLeft,
   Send,
   CheckCheck,
   Clock,
@@ -11,7 +10,6 @@ import {
   X,
   Paperclip,
   Camera,
-  Smile,
 } from 'lucide-react';
 import type {
   Peer,
@@ -32,7 +30,6 @@ interface ChatPaneProps {
   localProfile: LocalProfile | null;
   isPeerOnline: boolean;
   conversation?: ConversationSummary | null;
-  onClose: () => void;
   onAcceptInvitation?: (invitationId: string) => void;
   onDeclineInvitation?: (invitationId: string) => void;
 }
@@ -42,7 +39,6 @@ export default function ChatPane({
   localProfile,
   isPeerOnline,
   conversation,
-  onClose,
   onAcceptInvitation,
   onDeclineInvitation,
 }: ChatPaneProps): React.JSX.Element {
@@ -53,8 +49,6 @@ export default function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiMenuRef = useRef<HTMLDivElement>(null);
   const [cameraModalMode, setCameraModalMode] = useState<'photo' | 'video' | null>(null);
   const [viewingMedia, setViewingMedia] = useState<ViewingMedia | null>(null);
   const [transferProgressMap, setTransferProgressMap] = useState<Record<string, FileTransferProgress>>({});
@@ -89,18 +83,6 @@ export default function ChatPane({
   useEffect(() => {
     textareaRef.current?.focus();
   }, [activePeer.id]);
-
-  // Click outside to close emoji picker
-  useEffect(() => {
-    if (!showEmojiPicker) return;
-    const handleEmojiClick = (e: MouseEvent) => {
-      if (emojiMenuRef.current && !emojiMenuRef.current.contains(e.target as Node)) {
-        setShowEmojiPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handleEmojiClick);
-    return () => document.removeEventListener('mousedown', handleEmojiClick);
-  }, [showEmojiPicker]);
 
   // 5. Subscribe to real-time events from IPC bridge
   useEffect(() => {
@@ -186,7 +168,7 @@ export default function ChatPane({
     if (!text || isSending) return;
 
     if (!isPeerOnline) {
-      setErrorMessage('Cannot send: Peer is offline from local network');
+      setErrorMessage('Cannot send: User is offline from local network');
       return;
     }
 
@@ -359,14 +341,6 @@ export default function ChatPane({
     <div className="chat-container">
       {/* Header bar */}
       <div className="chat-header">
-        <button
-          className="chat-back-button"
-          onClick={onClose}
-          title="Back"
-        >
-          <ArrowLeft style={{ width: 18, height: 18 }} />
-        </button>
-
         <div className="chat-peer-info">
           <div className="chat-avatar-container">
             <UserAvatar
@@ -389,17 +363,26 @@ export default function ChatPane({
           </div>
         </div>
 
-        <div className="chat-header-actions">
-          <span className="unencrypted-badge">Unencrypted LAN</span>
-        </div>
       </div>
 
       {/* Pending Incoming Invitation Banner */}
       {isPendingIncoming && conversation?.pendingInvitation && onAcceptInvitation && onDeclineInvitation && (
         <div className="chat-invitation-action-banner">
           <div className="invitation-action-info">
-            <MessageSquare style={{ width: 16, height: 16, color: '#B58AE8', flexShrink: 0 }} />
-            <span>{activePeer.name} sent you a chat invitation. Accept to reply?</span>
+            <div className="invitation-action-avatar">
+              <UserAvatar
+                avatarType={activePeer.avatar?.avatarType || conversation?.peerAvatar?.avatarType}
+                avatarValue={activePeer.avatar?.avatarValue || conversation?.peerAvatar?.avatarValue}
+                size={30}
+                name={activePeer.name}
+                alt={activePeer.name}
+                fallbackIconColor="#B58AE8"
+              />
+            </div>
+            <div className="invitation-action-copy">
+              <strong>{activePeer.name}</strong>
+              <span>sent you a chat invitation. Accept to reply?</span>
+            </div>
           </div>
           <div className="invitation-action-buttons">
             <button
@@ -471,7 +454,6 @@ export default function ChatPane({
           messages.map((msg, idx) => {
             const isMe = msg.senderId === localProfile?.id;
             const isConsecutive = idx > 0 && messages[idx - 1].senderId === msg.senderId;
-            const showAvatar = !isMe && !isConsecutive;
 
             return (
               <div
@@ -479,30 +461,6 @@ export default function ChatPane({
                 className={`message-row ${isMe ? 'outgoing' : 'incoming'} ${isConsecutive ? 'consecutive' : ''
                   }`}
               >
-                {!isMe && (
-                  <div className="message-peer-avatar-slot">
-                    {showAvatar ? (
-                      <UserAvatar
-                        avatarType={
-                          msg.senderAvatar?.avatarType ||
-                          activePeer.avatar?.avatarType ||
-                          conversation?.peerAvatar?.avatarType
-                        }
-                        avatarValue={
-                          msg.senderAvatar?.avatarValue ||
-                          activePeer.avatar?.avatarValue ||
-                          conversation?.peerAvatar?.avatarValue
-                        }
-                        size={28}
-                        name={activePeer.name}
-                        alt={activePeer.name}
-                        fallbackIconColor="#B58AE8"
-                      />
-                    ) : (
-                      <div className="message-avatar-spacer" style={{ width: 28, height: 28 }} />
-                    )}
-                  </div>
-                )}
                 <div className={`message-bubble ${isMe ? 'bubble-me' : 'bubble-peer'}`}>
                   {msg.attachment && (
                     <AttachmentBubble
@@ -561,7 +519,7 @@ export default function ChatPane({
       {!isPeerOnline && (
         <div className="chat-offline-banner">
           <WifiOff style={{ width: 14, height: 14, color: '#f59e0b', flexShrink: 0 }} />
-          <span>Peer disappeared from local network. Viewing persisted local history.</span>
+          <span>User disappeared from local network. Viewing persisted local history.</span>
         </div>
       )}
 
@@ -591,38 +549,6 @@ export default function ChatPane({
           <Camera style={{ width: 16, height: 16 }} />
         </button>
 
-        {/* Quick Emoji Picker */}
-        <div className="chat-emoji-container" ref={emojiMenuRef}>
-          <button
-            type="button"
-            className={`chat-composer-action-btn ${showEmojiPicker ? 'active' : ''}`}
-            onClick={() => setShowEmojiPicker((prev) => !prev)}
-            disabled={!isPeerOnline || isSending || isDeclined}
-            title="Add emoji"
-            aria-label="Add emoji"
-          >
-            <Smile style={{ width: 16, height: 16 }} />
-          </button>
-          {showEmojiPicker && (
-            <div className="emoji-popover-menu" role="menu">
-              {['✨', '👋', '😊', '🌸', '☕', '🐱', '🐰', '🎉', '💜', '🌿', '👍', '🤍'].map((em) => (
-                <button
-                  key={em}
-                  type="button"
-                  className="emoji-select-btn"
-                  onClick={() => {
-                    setInputText((prev) => prev + em);
-                    setShowEmojiPicker(false);
-                    textareaRef.current?.focus();
-                  }}
-                >
-                  {em}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         <textarea
           ref={textareaRef}
           className="chat-textarea"
@@ -631,10 +557,10 @@ export default function ChatPane({
           onKeyDown={handleKeyDown}
           placeholder={
             !isPeerOnline
-              ? 'Peer is offline from local network'
+              ? 'User is offline from local network'
               : isDeclined
                 ? 'Invitation was declined'
-                : 'Type a message... (Enter to send, Shift+Enter for newline)'
+                : 'type a message .....'
           }
           disabled={!isPeerOnline || isDeclined}
           rows={1}

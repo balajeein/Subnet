@@ -13,14 +13,14 @@ interface UserAvatarProps {
 }
 
 const PASTEL_PALETTE = [
-  { bg: '#F0E6FA', fg: '#6941A5', border: '#E2D3F5' }, // Lavender
-  { bg: '#DDF3EA', fg: '#217355', border: '#C5E8D9' }, // Mint
-  { bg: '#F8E3D8', fg: '#964E24', border: '#F0CBB7' }, // Peach
-  { bg: '#FEF6D8', fg: '#7C5C10', border: '#F8E9B0' }, // Butter
-  { bg: '#EAF0F6', fg: '#2B5A84', border: '#D0DFEE' }, // Sky
-  { bg: '#FCE8EF', fg: '#9B3256', border: '#F5CBD9' }, // Rose
-  { bg: '#ECE8F4', fg: '#544175', border: '#DDD4EA' }, // Lilac
-  { bg: '#E2F4EE', fg: '#1C6955', border: '#C2E7DB' }, // Sage
+  { bg: '#F0E6FA', fg: '#6941A5' }, // Lavender
+  { bg: '#DDF3EA', fg: '#217355' }, // Mint
+  { bg: '#F8E3D8', fg: '#964E24' }, // Peach
+  { bg: '#FEF6D8', fg: '#7C5C10' }, // Butter
+  { bg: '#EAF0F6', fg: '#2B5A84' }, // Sky
+  { bg: '#FCE8EF', fg: '#9B3256' }, // Rose
+  { bg: '#ECE8F4', fg: '#544175' }, // Lilac
+  { bg: '#E2F4EE', fg: '#1C6955' }, // Sage
 ];
 
 function getDeterministicPastel(seed: string) {
@@ -100,7 +100,6 @@ export default function UserAvatar({
           alignItems: 'center',
           justifyContent: 'center',
           backgroundColor: pastel.bg,
-          boxShadow: `inset 0 0 0 1px ${pastel.border}`,
           flexShrink: 0,
         }}
       >
@@ -131,7 +130,6 @@ export default function UserAvatar({
         fontWeight: 600,
         letterSpacing: '-0.02em',
         userSelect: 'none',
-        boxShadow: `inset 0 0 0 1px ${pastel.border}`,
         flexShrink: 0,
       }}
       title={displayName || alt}

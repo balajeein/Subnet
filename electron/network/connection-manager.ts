@@ -161,6 +161,7 @@ export class ConnectionManager extends EventEmitter {
       localPeerId: this.localProfile.id,
       displayName: this.localProfile.name,
       port: this.port,
+      discoverable: this.chatStore.getSettings().peopleCanFindMe !== false,
     });
 
     await this.bonjour.start(
@@ -507,13 +508,13 @@ export class ConnectionManager extends EventEmitter {
     const currentConn = this.activeConnections.get(trimmedRecipient);
     const peer = this.discoveredPeers.get(trimmedRecipient);
     if (!peer && (!currentConn || currentConn.state !== 'connected')) {
-      return { success: false, error: 'Peer is not discovered or offline on local network' };
+      return { success: false, error: 'User is not discovered or offline on local network' };
     }
     const peerDisplayName = peer?.name || currentConn?.remotePeer?.name || 'Nearby Peer';
 
     const activeConn = await this.ensureActiveConnection(trimmedRecipient);
     if (!activeConn) {
-      return { success: false, error: 'Failed to establish connection to peer on LAN' };
+      return { success: false, error: 'Failed to establish connection to user on LAN' };
     }
 
     let conv = this.chatStore.getConversation(trimmedRecipient);
@@ -536,7 +537,7 @@ export class ConnectionManager extends EventEmitter {
 
     if (!isAccepted) {
       if (conv?.status === 'pending_outgoing' && conv.pendingInvitation) {
-        return { success: false, error: 'A chat invitation is already pending for this peer' };
+      return { success: false, error: 'A chat invitation is already pending for this user' };
       }
 
       const invitationId = crypto.randomUUID();
@@ -724,6 +725,57 @@ export class ConnectionManager extends EventEmitter {
     return { success: true, roomId };
   }
 
+  public async inviteToPrivateRoom(
+    roomId: string,
+    peerId: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const trimmedRoomId = typeof roomId === 'string' ? roomId.trim() : '';
+    const trimmedPeerId = typeof peerId === 'string' ? peerId.trim() : '';
+
+    if (!trimmedRoomId || !trimmedPeerId) {
+      return { success: false, error: 'Room and user are required' };
+    }
+    if (trimmedPeerId === this.localProfile.id) {
+      return { success: false, error: 'You cannot add yourself to the room' };
+    }
+
+    const room = this.chatStore.getRoom(trimmedRoomId);
+    if (!room) {
+      return { success: false, error: 'Room does not exist' };
+    }
+    if (room.type !== 'private' || room.hostId !== this.localProfile.id) {
+      return { success: false, error: 'Only the private room host can add users' };
+    }
+    if (room.status === 'closed' || this.closedRoomIds.has(room.id) || this.chatStore.isRoomClosed(room.id)) {
+      return { success: false, error: 'Room is closed' };
+    }
+    if (room.members.some((member) => member.id === trimmedPeerId)) {
+      return { success: false, error: 'User is already in this room' };
+    }
+
+    const connection = await this.ensureActiveConnection(trimmedPeerId);
+    if (!connection) {
+      return { success: false, error: 'User is no longer available nearby' };
+    }
+
+    connection.sendEnvelope({
+      type: 'room_invitation',
+      id: crypto.randomUUID(),
+      roomId: room.id,
+      roomName: room.name,
+      roomType: 'private',
+      hostId: this.localProfile.id,
+      hostName: this.localProfile.name,
+      invitedPeerId: trimmedPeerId,
+      timestamp: Date.now(),
+    });
+
+    console.log(
+      `[Subnet:Room] Invited user ${trimmedPeerId.slice(0, 8)} to private room ${room.id.slice(0, 8)}`
+    );
+    return { success: true };
+  }
+
   public async createAnonymousRoom(
     name: string,
     capacity?: number,
@@ -740,7 +792,7 @@ export class ConnectionManager extends EventEmitter {
 
     const chosenNick = validateNickname(nickname);
     if (!chosenNick) {
-      throw new Error('A valid nickname (2-30 characters) is required to create an anonymous room');
+      throw new Error('A valid nickname (3-15 characters) is required to create an anonymous room');
     }
     const roomId = crypto.randomUUID();
     const roomName = name.trim().slice(0, 80);
@@ -968,7 +1020,7 @@ export class ConnectionManager extends EventEmitter {
     if (!validatedNick) {
       return {
         success: false,
-        error: 'Nickname must be 2-30 characters (letters, numbers, spaces, dashes, underscores)',
+        error: 'Nickname must be 3-15 characters (letters, numbers, spaces, dashes, underscores)',
       };
     }
 
@@ -1545,7 +1597,7 @@ export class ConnectionManager extends EventEmitter {
             roomName: room.name,
             roomType: 'anonymous',
             success: false,
-            error: 'Nickname must be 2-30 alphanumeric characters, spaces, dashes, or underscores',
+            error: 'Nickname must be 3-15 alphanumeric characters, spaces, dashes, or underscores',
             timestamp: Date.now(),
           });
           return;
@@ -1898,6 +1950,9 @@ export class ConnectionManager extends EventEmitter {
 
   public updateSettings(partial: Partial<UserSettings>): UserSettings {
     const updated = this.chatStore.updateSettings(partial);
+    if (partial.peopleCanFindMe !== undefined) {
+      void this.bonjour?.setDiscoverable(updated.peopleCanFindMe !== false);
+    }
     if (partial.avatarType !== undefined || partial.avatarValue !== undefined || partial.shareAvatarWithPeers !== undefined) {
       const avatarToBroadcast: ProfileAvatarMetadata =
         updated.shareAvatarWithPeers !== false && updated.avatarType !== 'default'
@@ -1956,7 +2011,7 @@ export class ConnectionManager extends EventEmitter {
     peerId: string
   ): Promise<{ success: boolean; remoteConfirmed: boolean; error?: string }> {
     if (!peerId || typeof peerId !== 'string') {
-      return { success: false, remoteConfirmed: false, error: 'Invalid peer ID' };
+      return { success: false, remoteConfirmed: false, error: 'Invalid user ID' };
     }
     const trimmed = peerId.trim();
 
@@ -1984,7 +2039,7 @@ export class ConnectionManager extends EventEmitter {
       return {
         success: false,
         remoteConfirmed: false,
-        error: 'Socket error: failed to transmit conversation-ending event to peer.',
+        error: 'Socket error: failed to transmit conversation-ending event to user.',
       };
     }
 
@@ -2165,7 +2220,7 @@ export class ConnectionManager extends EventEmitter {
     const conn = await this.ensureActiveConnection(targetPeerId);
     if (!conn) {
       this.transferManager.cancelTransfer(transferId, 'Peer is offline');
-      return { success: false, error: 'Target peer is currently unreachable on local network' };
+      return { success: false, error: 'Target user is currently unreachable on local network' };
     }
 
     const req: FileRequestPayload = {

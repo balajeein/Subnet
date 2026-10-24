@@ -58,7 +58,7 @@ const subnetBridge: SubnetAPI = {
 
   deleteConversation: (peerId: string): Promise<{ success: boolean; error?: string }> => {
     if (typeof peerId !== 'string' || !peerId.trim()) {
-      return Promise.resolve({ success: false, error: 'Invalid peer ID' });
+      return Promise.resolve({ success: false, error: 'Invalid user ID' });
     }
     return ipcRenderer.invoke('subnet:delete-conversation', peerId.trim());
   },
@@ -70,7 +70,7 @@ const subnetBridge: SubnetAPI = {
       return Promise.resolve({
         success: false,
         remoteConfirmed: false,
-        error: 'Invalid peer ID',
+        error: 'Invalid user ID',
       });
     }
     return ipcRenderer.invoke('subnet:end-conversation', peerId.trim());
@@ -281,6 +281,19 @@ const subnetBridge: SubnetAPI = {
     return ipcRenderer.invoke('subnet:create-private-room', {
       name: (name || '').trim().slice(0, 80),
       invitedPeerIds: Array.isArray(invitedPeerIds) ? invitedPeerIds : [],
+    });
+  },
+
+  inviteToPrivateRoom: (
+    roomId: string,
+    peerId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (typeof roomId !== 'string' || !roomId.trim() || typeof peerId !== 'string' || !peerId.trim()) {
+      return Promise.resolve({ success: false, error: 'Invalid room or user ID' });
+    }
+    return ipcRenderer.invoke('subnet:invite-to-private-room', {
+      roomId: roomId.trim(),
+      peerId: peerId.trim(),
     });
   },
 

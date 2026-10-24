@@ -3,8 +3,6 @@ import {
   Radio,
   Plus,
   Inbox,
-  PanelLeftClose,
-  PanelLeftOpen,
   MessageSquare,
   Compass,
   MoreVertical,
@@ -29,8 +27,6 @@ export type ActiveView =
   | { type: 'settings' };
 
 interface SidebarProps {
-  isCollapsed: boolean;
-  onToggleCollapse: () => void;
   activeView: ActiveView;
   onSelectRadar: () => void;
   onSelectCreateRoom: () => void;
@@ -51,8 +47,6 @@ interface SidebarProps {
 }
 
 export default function Sidebar({
-  isCollapsed,
-  onToggleCollapse,
   activeView,
   onSelectRadar,
   onSelectCreateRoom,
@@ -99,7 +93,7 @@ export default function Sidebar({
       const next = !prev;
       try {
         localStorage.setItem('subnet_sidebar_rooms_expanded', String(next));
-      } catch {}
+      } catch { }
       return next;
     });
   };
@@ -109,13 +103,16 @@ export default function Sidebar({
       const next = !prev;
       try {
         localStorage.setItem('subnet_sidebar_chats_expanded', String(next));
-      } catch {}
+      } catch { }
       return next;
     });
   };
 
   const roomsUnreadCount = rooms.reduce((acc, r) => acc + (r.unreadCount || 0), 0);
   const chatsUnreadCount = conversations.reduce((acc, c) => acc + (c.unreadCount || 0), 0);
+  const recentConversations = [...conversations].sort(
+    (a, b) => b.lastTimestamp - a.lastTimestamp
+  );
 
   // Confirmation modals state
   const [convToDelete, setConvToDelete] = useState<{ peerId: string; peerName: string } | null>(null);
@@ -171,30 +168,14 @@ export default function Sidebar({
   const isFindRoomActive = activeView.type === 'find-room';
 
   return (
-    <aside className={`subnet-sidebar ${isCollapsed ? 'collapsed' : ''}`} ref={menuRef}>
-      {/* Top draggable area with branding and collapse toggle */}
+    <aside className="subnet-sidebar" ref={menuRef}>
+      {/* Top draggable area with branding */}
       <div className="sidebar-header">
-        {!isCollapsed && (
-          <div className="sidebar-brand" onClick={onSelectRadar} role="button" tabIndex={0}>
-            <Radio className="sidebar-brand-icon" />
-            <span className="sidebar-brand-title">Subnet</span>
-            <span className="sidebar-brand-tag">v0.1.0</span>
-          </div>
-        )}
-
-        <button
-          type="button"
-          className="sidebar-collapse-toggle"
-          onClick={onToggleCollapse}
-          title={isCollapsed ? 'Expand sidebar (⌘B)' : 'Collapse sidebar (⌘B)'}
-          aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-        >
-          {isCollapsed ? (
-            <PanelLeftOpen style={{ width: 17, height: 17 }} />
-          ) : (
-            <PanelLeftClose style={{ width: 17, height: 17 }} />
-          )}
-        </button>
+        <div className="sidebar-brand" onClick={onSelectRadar} role="button" tabIndex={0}>
+          <Radio className="sidebar-brand-icon" />
+          <span className="sidebar-brand-title">Subnet</span>
+          <span className="sidebar-brand-tag">v0.1.0</span>
+        </div>
       </div>
 
       {/* Main navigation actions */}
@@ -207,7 +188,7 @@ export default function Sidebar({
           title="New Chat (Radar)"
         >
           <Plus style={{ width: 16, height: 16, flexShrink: 0 }} />
-          {!isCollapsed && <span>New Chat</span>}
+          <span>New Chat</span>
         </button>
 
         {/* Create Room */}
@@ -218,7 +199,7 @@ export default function Sidebar({
           title="Create Room"
         >
           <Plus style={{ width: 16, height: 16, flexShrink: 0, color: '#B58AE8' }} />
-          {!isCollapsed && <span>Create Room</span>}
+          <span>Create Room</span>
         </button>
 
         {/* Find Room */}
@@ -229,7 +210,7 @@ export default function Sidebar({
           title="Find Room"
         >
           <Compass style={{ width: 16, height: 16, flexShrink: 0, color: '#36B987' }} />
-          {!isCollapsed && <span>Find Room</span>}
+          <span>Find Room</span>
         </button>
 
         {/* Requests Navigation item with live badge */}
@@ -241,17 +222,10 @@ export default function Sidebar({
         >
           <div className="nav-btn-icon-wrap">
             <Inbox style={{ width: 16, height: 16, flexShrink: 0 }} />
-            {isCollapsed && pendingRequestsCount > 0 && (
-              <span className="collapsed-badge-dot" />
-            )}
           </div>
-          {!isCollapsed && (
-            <>
-              <span className="nav-btn-label">Requests</span>
-              {pendingRequestsCount > 0 && (
-                <span className="requests-live-badge">{pendingRequestsCount}</span>
-              )}
-            </>
+          <span className="nav-btn-label">Requests</span>
+          {pendingRequestsCount > 0 && (
+            <span className="requests-live-badge">{pendingRequestsCount}</span>
           )}
         </button>
       </div>
@@ -260,7 +234,7 @@ export default function Sidebar({
       <div className="sidebar-scrollable-content">
         {/* ROOMS Section */}
         <div className="sidebar-rooms-section">
-          {!isCollapsed && (
+          {
             <div className="sidebar-section-header-wrap">
               <button
                 type="button"
@@ -286,44 +260,40 @@ export default function Sidebar({
                 </div>
               </button>
             </div>
-          )}
+          }
 
-          {(roomsExpanded || isCollapsed) && (
+          {roomsExpanded && (
             <div id="sidebar-rooms-list" className="sidebar-rooms-list">
-            {rooms.length === 0 ? (
-              !isCollapsed && (
+              {rooms.length === 0 ? (
                 <div className="sidebar-empty-hint">
                   <span>No rooms joined yet</span>
                 </div>
-              )
-            ) : (
-              rooms.map((room) => {
-                const isSelected = activeView.type === 'room' && activeView.roomId === room.id;
-                const isAnon = room.type === 'anonymous';
-                const isClosed = room.status === 'closed';
+              ) : (
+                rooms.map((room) => {
+                  const isSelected = activeView.type === 'room' && activeView.roomId === room.id;
+                  const isAnon = room.type === 'anonymous';
+                  const isClosed = room.status === 'closed';
 
-                return (
-                  <div
-                    key={room.id}
-                    className={`sidebar-chat-row sidebar-room-row ${isSelected ? 'selected' : ''} ${
-                      room.unreadCount > 0 ? 'unread' : ''
-                    }`}
-                    onClick={() => onSelectRoom(room.id)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelectRoom(room.id);
-                      }
-                    }}
-                    title={isCollapsed ? `${room.name} (${isAnon ? 'Anonymous' : 'Private'})` : undefined}
-                  >
-                    <div className="chat-row-avatar-wrap">
-                      <MascotAvatar id={room.id} name={room.name} size={28} />
-                    </div>
+                  return (
+                    <div
+                      key={room.id}
+                      className={`sidebar-chat-row sidebar-room-row ${isSelected ? 'selected' : ''} ${room.unreadCount > 0 ? 'unread' : ''
+                        }`}
+                      onClick={() => onSelectRoom(room.id)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectRoom(room.id);
+                        }
+                      }}
+                      title={`${room.name} (${isAnon ? 'Anonymous' : 'Private'})`}
+                    >
+                      <div className="chat-row-avatar-wrap">
+                        <MascotAvatar id={room.id} name={room.name} size={28} />
+                      </div>
 
-                    {!isCollapsed && (
                       <div className="chat-row-content">
                         <div className="chat-row-top">
                           <span className="chat-row-name room-name">{room.name}</span>
@@ -338,12 +308,10 @@ export default function Sidebar({
                           {room.unreadCount > 0 && (
                             <span className="chat-row-unread-badge">{room.unreadCount}</span>
                           )}
+                          </div>
                         </div>
-                      </div>
-                    )}
 
-                    {/* 3-dot action menu for room */}
-                    {!isCollapsed && (
+                      {/* 3-dot action menu for room */}
                       <div className="chat-row-menu-container" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
@@ -373,22 +341,17 @@ export default function Sidebar({
                           </div>
                         )}
                       </div>
-                    )}
-
-                    {isCollapsed && room.unreadCount > 0 && (
-                      <span className="collapsed-unread-indicator">{room.unreadCount}</span>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           )}
         </div>
 
         {/* CHATS Section (Direct 1-to-1 Conversations) */}
         <div className="sidebar-chats-section">
-          {!isCollapsed && (
+          {
             <div className="sidebar-section-header-wrap">
               <button
                 type="button"
@@ -416,67 +379,63 @@ export default function Sidebar({
                 </div>
               </button>
             </div>
-          )}
+          }
 
-          {(chatsExpanded || isCollapsed) && (
+          {chatsExpanded && (
             <div id="sidebar-chats-scroll" className="sidebar-chats-scroll">
-            {conversations.length === 0 ? (
-              !isCollapsed && (
+              {conversations.length === 0 ? (
                 <div className="sidebar-empty-chats">
                   <MessageSquare style={{ width: 20, height: 20, color: '#475569' }} />
                   <span>No chats yet</span>
                   <p>Click "New Chat" to discover nearby devices.</p>
                 </div>
-              )
-            ) : (
-              conversations.map((conv) => {
-                const onlinePeer = discoveredPeers.find((p) => p.id === conv.peerId);
-                const isOnline = Boolean(onlinePeer);
-                const isSelected = activeView.type === 'chat' && activeView.peerId === conv.peerId;
-                const peerObject: Peer = onlinePeer || {
-                  id: conv.peerId,
-                  name: conv.peerName,
-                };
+              ) : (
+                recentConversations.map((conv) => {
+                  const onlinePeer = discoveredPeers.find((p) => p.id === conv.peerId);
+                  const isOnline = Boolean(onlinePeer);
+                  const isSelected = activeView.type === 'chat' && activeView.peerId === conv.peerId;
+                  const peerObject: Peer = onlinePeer || {
+                    id: conv.peerId,
+                    name: conv.peerName,
+                  };
 
-                const previewText =
-                  conv.status === 'pending_incoming'
-                    ? 'Incoming request...'
-                    : conv.status === 'pending_outgoing'
-                    ? 'Request sent...'
-                    : conv.status === 'declined'
-                    ? 'Request declined'
-                    : conv.lastMessage || 'No messages';
+                  const previewText =
+                    conv.status === 'pending_incoming'
+                      ? 'Incoming request...'
+                      : conv.status === 'pending_outgoing'
+                        ? 'Request sent...'
+                        : conv.status === 'declined'
+                          ? 'Request declined'
+                          : conv.lastMessage || 'No messages';
 
-                return (
-                  <div
-                    key={conv.peerId}
-                    className={`sidebar-chat-row ${isSelected ? 'selected' : ''} ${
-                      conv.unreadCount > 0 ? 'unread' : ''
-                    }`}
-                    onClick={() => onSelectConversation(peerObject)}
-                    role="button"
-                    tabIndex={0}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ' ') {
-                        e.preventDefault();
-                        onSelectConversation(peerObject);
-                      }
-                    }}
-                    title={isCollapsed ? `${conv.peerName}: ${previewText}` : undefined}
-                  >
-                    <div className="chat-row-avatar-wrap">
-                      <UserAvatar
-                        avatarType={onlinePeer?.avatar?.avatarType || conv.peerAvatar?.avatarType}
-                        avatarValue={onlinePeer?.avatar?.avatarValue || conv.peerAvatar?.avatarValue}
-                        size={24}
-                        name={conv.peerName}
-                        alt={conv.peerName}
-                        fallbackIconColor={isOnline ? '#B58AE8' : '#77717F'}
-                      />
-                      <span className={`online-indicator-dot ${isOnline ? 'online' : 'offline'}`} />
-                    </div>
+                  return (
+                    <div
+                      key={conv.peerId}
+                      className={`sidebar-chat-row ${isSelected ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''
+                        }`}
+                      onClick={() => onSelectConversation(peerObject)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          onSelectConversation(peerObject);
+                        }
+                      }}
+                      title={`${conv.peerName}: ${previewText}`}
+                    >
+                      <div className="chat-row-avatar-wrap">
+                        <UserAvatar
+                          avatarType={onlinePeer?.avatar?.avatarType || conv.peerAvatar?.avatarType}
+                          avatarValue={onlinePeer?.avatar?.avatarValue || conv.peerAvatar?.avatarValue}
+                          size={24}
+                          name={conv.peerName}
+                          alt={conv.peerName}
+                          fallbackIconColor={isOnline ? '#B58AE8' : '#77717F'}
+                        />
+                        <span className={`online-indicator-dot ${isOnline ? 'online' : 'offline'}`} />
+                      </div>
 
-                    {!isCollapsed && (
                       <div className="chat-row-content">
                         <div className="chat-row-top">
                           <span className="chat-row-name">{conv.peerName}</span>
@@ -486,25 +445,22 @@ export default function Sidebar({
                         </div>
                         <div className="chat-row-bottom">
                           <span
-                            className={`chat-row-preview ${
-                              conv.status === 'pending_incoming'
-                                ? 'pending'
-                                : conv.status === 'declined'
+                            className={`chat-row-preview ${conv.status === 'pending_incoming'
+                              ? 'pending'
+                              : conv.status === 'declined'
                                 ? 'declined'
                                 : ''
-                            }`}
+                              }`}
                           >
                             {previewText}
                           </span>
                           {conv.unreadCount > 0 && (
                             <span className="chat-row-unread-badge">{conv.unreadCount}</span>
                           )}
+                          </div>
                         </div>
-                      </div>
-                    )}
 
-                    {/* 3-dot action menu for conversation */}
-                    {!isCollapsed && (
+                      {/* 3-dot action menu for conversation */}
                       <div className="chat-row-menu-container" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
@@ -553,16 +509,11 @@ export default function Sidebar({
                           </div>
                         )}
                       </div>
-                    )}
-
-                    {isCollapsed && conv.unreadCount > 0 && (
-                      <span className="collapsed-unread-indicator">{conv.unreadCount}</span>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           )}
         </div>
       </div>
@@ -592,12 +543,10 @@ export default function Sidebar({
               fallbackIconColor="#B58AE8"
             />
           </div>
-          {!isCollapsed && (
-            <div className="profile-info">
-              <span className="profile-name">{localProfile?.name || 'My Mac'}</span>
-              <span className="profile-tag">Profile</span>
-            </div>
-          )}
+          <div className="profile-info">
+            <span className="profile-name">{localProfile?.name || 'My Mac'}</span>
+            <span className="profile-tag">Profile</span>
+          </div>
         </div>
       </div>
 
@@ -619,7 +568,7 @@ export default function Sidebar({
                 this device only.
               </p>
               <p className="modal-sub-notice">
-                Note: This only deletes your local history. The other peer's device and history will not
+                Note: This only deletes your local history. The other user's device and history will not
                 be affected.
               </p>
             </div>
@@ -667,7 +616,7 @@ export default function Sidebar({
                 a fresh chat invitation.
               </p>
               <p className="modal-sub-notice">
-                Important: The other peer must be connected to the local network to confirm remote
+                Important: The other user must be connected to the local network to confirm remote
                 deletion. An offline device cannot be remotely erased until it reconnects.
               </p>
             </div>

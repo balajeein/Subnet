@@ -3,18 +3,18 @@ import {
   Users,
   VenetianMask,
   Send,
-  ArrowLeft,
   ShieldAlert,
   LogOut,
   Info,
+  UserPlus,
   Paperclip,
   Camera,
-  Smile,
 } from 'lucide-react';
 import type {
   RoomSummary,
   RoomMessage,
   LocalProfile,
+  Peer,
   FileTransferProgress,
 } from '../types/subnet';
 import UserAvatar from './UserAvatar';
@@ -26,6 +26,7 @@ import AttachmentBubble from './AttachmentBubble';
 interface RoomChatPaneProps {
   room: RoomSummary;
   localProfile: LocalProfile | null;
+  discoveredPeers: Peer[];
   onClose: () => void;
   onLeaveRoom: (roomId: string) => void;
 }
@@ -33,27 +34,87 @@ interface RoomChatPaneProps {
 export default function RoomChatPane({
   room,
   localProfile,
-  onClose,
+  discoveredPeers,
   onLeaveRoom,
 }: RoomChatPaneProps): React.JSX.Element {
   const [messages, setMessages] = useState<RoomMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [showMemberList, setShowMemberList] = useState(false);
+  const [showAddMembers, setShowAddMembers] = useState(false);
+  const [addingMemberId, setAddingMemberId] = useState<string | null>(null);
+  const [pendingMemberIds, setPendingMemberIds] = useState<Set<string>>(new Set());
+  const [memberInviteError, setMemberInviteError] = useState<string | null>(null);
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Attachment state
-  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
-  const emojiMenuRef = useRef<HTMLDivElement>(null);
   const [cameraModalMode, setCameraModalMode] = useState<'photo' | 'video' | null>(null);
   const [viewingMedia, setViewingMedia] = useState<ViewingMedia | null>(null);
   const [transferProgressMap, setTransferProgressMap] = useState<Record<string, FileTransferProgress>>({});
+  const memberControlRef = useRef<HTMLDivElement>(null);
 
   const isClosed = room.status === 'closed';
   const isAnonymous = room.type === 'anonymous';
+  const canAddMembers = room.type === 'private' && room.isHost && !isClosed;
+  const roomMemberIds = new Set(room.members.map((member) => member.id));
+  const addablePeers = discoveredPeers.filter(
+    (peer) =>
+      peer.id !== localProfile?.id &&
+      !roomMemberIds.has(peer.id) &&
+      !pendingMemberIds.has(peer.id)
+  );
+
+  useEffect(() => {
+    setShowAddMembers(false);
+    setAddingMemberId(null);
+    setPendingMemberIds(new Set());
+    setMemberInviteError(null);
+  }, [room.id]);
+
+  useEffect(() => {
+    if (!room.members.length) return;
+    setPendingMemberIds((previous) => {
+      const next = new Set(previous);
+      room.members.forEach((member) => next.delete(member.id));
+      return next.size === previous.size ? previous : next;
+    });
+  }, [room.members]);
+
+  useEffect(() => {
+    if (!showMemberList) return;
+
+    const handleOutsidePointerDown = (event: MouseEvent) => {
+      if (memberControlRef.current && !memberControlRef.current.contains(event.target as Node)) {
+        setShowMemberList(false);
+      }
+    };
+
+    document.addEventListener('mousedown', handleOutsidePointerDown);
+    return () => document.removeEventListener('mousedown', handleOutsidePointerDown);
+  }, [showMemberList]);
+
+  const handleInviteMember = async (peer: Peer) => {
+    if (!canAddMembers || addingMemberId) return;
+
+    setAddingMemberId(peer.id);
+    setMemberInviteError(null);
+
+    try {
+      const result = await window.subnet.inviteToPrivateRoom(room.id, peer.id);
+      if (!result.success) {
+        setMemberInviteError(result.error || `Could not invite ${peer.name}`);
+        return;
+      }
+
+      setPendingMemberIds((previous) => new Set(previous).add(peer.id));
+    } catch (error: any) {
+      setMemberInviteError(error?.message || `Could not invite ${peer.name}`);
+    } finally {
+      setAddingMemberId(null);
+    }
+  };
 
   // Load room messages and subscribe to updates
   useEffect(() => {
@@ -108,18 +169,6 @@ export default function RoomChatPane({
       if (unsubProgress) unsubProgress();
     };
   }, [room.id]);
-
-  // Click outside to close emoji picker
-  useEffect(() => {
-    if (!showEmojiPicker) return;
-    const handleEmojiClick = (e: MouseEvent) => {
-      if (emojiMenuRef.current && !emojiMenuRef.current.contains(e.target as Node)) {
-        setShowEmojiPicker(false);
-      }
-    };
-    document.addEventListener('mousedown', handleEmojiClick);
-    return () => document.removeEventListener('mousedown', handleEmojiClick);
-  }, [showEmojiPicker]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -262,15 +311,6 @@ export default function RoomChatPane({
       {/* Top Header */}
       <header className="room-chat-header">
         <div className="room-header-left">
-          <button
-            type="button"
-            className="room-back-btn"
-            onClick={onClose}
-            title="Back to Radar"
-          >
-            <ArrowLeft style={{ width: 17, height: 17 }} />
-          </button>
-
           <div className="room-header-avatar">
             <MascotAvatar id={room.id} name={room.name} size={32} />
           </div>
@@ -291,15 +331,143 @@ export default function RoomChatPane({
         </div>
 
         <div className="room-header-right">
-          <button
-            type="button"
-            className={`btn-header-action ${showMemberList ? 'active' : ''}`}
-            onClick={() => setShowMemberList(!showMemberList)}
-            title="View participants"
-          >
-            <Info style={{ width: 15, height: 15 }} />
-            <span>Members ({room.members.length})</span>
-          </button>
+          <div className="room-members-control" ref={memberControlRef}>
+            <button
+              type="button"
+              className={`btn-header-action ${showMemberList ? 'active' : ''}`}
+              onClick={() => setShowMemberList(!showMemberList)}
+              title="View participants"
+            >
+              <Info style={{ width: 15, height: 15 }} />
+              <span>Members ({room.members.length})</span>
+            </button>
+
+            {showMemberList && (
+              <div className="member-list-popover">
+                <div className="popover-header">
+                  {showAddMembers ? (
+                    <button
+                      type="button"
+                      className="popover-back-btn"
+                      onClick={() => {
+                        setShowAddMembers(false);
+                        setMemberInviteError(null);
+                      }}
+                    >
+                      <span aria-hidden="true">‹</span>
+                      <span>Members</span>
+                    </button>
+                  ) : (
+                    <h4>Room Members ({room.members.length})</h4>
+                  )}
+                </div>
+                {!showAddMembers && canAddMembers && (
+                  <button
+                    type="button"
+                    className="popover-add-members-btn"
+                    onClick={() => {
+                      setShowAddMembers(true);
+                      setMemberInviteError(null);
+                    }}
+                  >
+                    <UserPlus style={{ width: 14, height: 14 }} />
+                    <span>Add members</span>
+                  </button>
+                )}
+
+                {showAddMembers ? (
+                  <>
+                    {memberInviteError && (
+                      <p className="popover-member-error" role="alert">
+                        {memberInviteError}
+                      </p>
+                    )}
+                    <div className="popover-members-scroll">
+                      {addablePeers.length === 0 && pendingMemberIds.size === 0 ? (
+                        <p className="popover-empty-state">No new users nearby.</p>
+                      ) : (
+                        <>
+                          {addablePeers.map((peer) => (
+                            <div key={peer.id} className="popover-add-member-row">
+                              <UserAvatar
+                                avatarType={peer.avatar?.avatarType}
+                                avatarValue={peer.avatar?.avatarValue}
+                                size={24}
+                                name={peer.name}
+                                alt={peer.name}
+                                fallbackIconColor="#B58AE8"
+                              />
+                              <span className="popover-add-member-name">{peer.name}</span>
+                              <button
+                                type="button"
+                                className="popover-add-member-action"
+                                onClick={() => handleInviteMember(peer)}
+                                disabled={addingMemberId !== null}
+                              >
+                                {addingMemberId === peer.id ? 'Sending…' : 'Add'}
+                              </button>
+                            </div>
+                          ))}
+                          {Array.from(pendingMemberIds).map((peerId) => {
+                            const peer = discoveredPeers.find((candidate) => candidate.id === peerId);
+                            if (!peer) return null;
+                            return (
+                              <div key={peer.id} className="popover-add-member-row is-pending">
+                                <UserAvatar
+                                  avatarType={peer.avatar?.avatarType}
+                                  avatarValue={peer.avatar?.avatarValue}
+                                  size={24}
+                                  name={peer.name}
+                                  alt={peer.name}
+                                  fallbackIconColor="#B58AE8"
+                                />
+                                <span className="popover-add-member-name">{peer.name}</span>
+                                <span className="popover-add-member-status">Invited</span>
+                              </div>
+                            );
+                          })}
+                        </>
+                      )}
+                    </div>
+                  </>
+                ) : (
+                  <div className="popover-members-scroll">
+                    {room.members.map((member) => (
+                      <div key={member.id} className="member-item-row">
+                        <div className="member-item-avatar-wrap">
+                          {isAnonymous ? (
+                            <MascotAvatar
+                              id={member.id}
+                              name={member.nickname}
+                              size={24}
+                            />
+                          ) : (
+                            <UserAvatar
+                              avatarType={member.avatar?.avatarType}
+                              avatarValue={member.avatar?.avatarValue}
+                              size={24}
+                              name={member.nickname}
+                              alt={member.nickname}
+                              fallbackIconColor="#B58AE8"
+                            />
+                          )}
+                        </div>
+                        <div className="member-item-info">
+                          <span className="member-item-name">{member.nickname}</span>
+                          {member.id === localProfile?.id && (
+                            <span className="member-item-you">(You)</span>
+                          )}
+                          {member.isHost && (
+                            <span className="member-item-host-badge">Host</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <button
             type="button"
@@ -450,55 +618,6 @@ export default function RoomChatPane({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Member List Drawer / Popover */}
-      {showMemberList && (
-        <div className="member-list-popover">
-          <div className="popover-header">
-            <h4>Room Members ({room.members.length})</h4>
-            <button
-              type="button"
-              className="popover-close-btn"
-              onClick={() => setShowMemberList(false)}
-            >
-              ✕
-            </button>
-          </div>
-          <div className="popover-members-scroll">
-            {room.members.map((member) => (
-              <div key={member.id} className="member-item-row">
-                <div className="member-item-avatar-wrap">
-                  {isAnonymous ? (
-                    <MascotAvatar
-                      id={member.id}
-                      name={member.nickname}
-                      size={24}
-                    />
-                  ) : (
-                    <UserAvatar
-                      avatarType={member.avatar?.avatarType}
-                      avatarValue={member.avatar?.avatarValue}
-                      size={24}
-                      name={member.nickname}
-                      alt={member.nickname}
-                      fallbackIconColor="#B58AE8"
-                    />
-                  )}
-                </div>
-                <div className="member-item-info">
-                  <span className="member-item-name">{member.nickname}</span>
-                  {member.id === localProfile?.id && (
-                    <span className="member-item-you">(You)</span>
-                  )}
-                  {member.isHost && (
-                    <span className="member-item-host-badge">Host</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Message Input Form */}
       <form onSubmit={handleSendMessage} className="room-input-bar">
         {/* Attachment (Finder picker) */}
@@ -525,37 +644,6 @@ export default function RoomChatPane({
           <Camera style={{ width: 16, height: 16 }} />
         </button>
 
-        {/* Quick Emoji Picker */}
-        <div className="chat-emoji-container" ref={emojiMenuRef}>
-          <button
-            type="button"
-            className={`chat-composer-action-btn ${showEmojiPicker ? 'active' : ''}`}
-            onClick={() => setShowEmojiPicker((prev) => !prev)}
-            disabled={isClosed || isSending}
-            title="Add emoji"
-            aria-label="Add emoji"
-          >
-            <Smile style={{ width: 16, height: 16 }} />
-          </button>
-          {showEmojiPicker && (
-            <div className="emoji-popover-menu" role="menu">
-              {['✨', '👋', '😊', '🌸', '☕', '🐱', '🐰', '🎉', '💜', '🌿', '👍', '🤍'].map((em) => (
-                <button
-                  key={em}
-                  type="button"
-                  className="emoji-select-btn"
-                  onClick={() => {
-                    setInputText((prev) => prev + em);
-                    setShowEmojiPicker(false);
-                  }}
-                >
-                  {em}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
         <input
           ref={inputRef}
           type="text"
@@ -565,7 +653,7 @@ export default function RoomChatPane({
               ? 'Room is closed. Sending is disabled.'
               : room.status === 'invited'
                 ? 'Type a message to accept invitation and reply...'
-                : `Message as "${room.myNickname}"...`
+                : 'type a message .....'
           }
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
@@ -595,12 +683,12 @@ export default function RoomChatPane({
             </div>
             <div className="modal-room-info">
               <h2 className="modal-room-name">
-                {room.isHost ? `Close "${room.name}"?` : `Leave "${room.name}"?`}
+                {room.isHost ? `Close "${room.name}"` : `Leave "${room.name}"`}
               </h2>
               <p className="modal-confirm-desc">
                 {room.isHost
-                  ? 'As host, closing this room will terminate it for all members and permanently delete the room and its chat history for everyone, including yourself.'
-                  : 'You will leave this room and it will be removed from your active rooms.'}
+                  ? 'Closing this room ends it for everyone. Chat history will be deleted for all members.'
+                  : 'Leave this room and remove it from your active rooms. Chat history will be deleted when you leave.'}
               </p>
             </div>
             <div className="modal-actions">

@@ -24,11 +24,11 @@ test('Room Protocol & Membership Validation Tests', async (t) => {
   await t.test('1. Nickname validator enforcement', () => {
     assert.equal(validateNickname('Neon Hawk'), 'Neon Hawk');
     assert.equal(validateNickname('swift_fox-42'), 'swift_fox-42');
-    assert.equal(validateNickname('Ab'), 'Ab'); // 2 chars min
+    assert.equal(validateNickname('Abc'), 'Abc'); // 3 chars min
 
     // Invalid nicknames
-    assert.equal(validateNickname('A'), null, 'Must reject < 2 chars');
-    assert.equal(validateNickname('This nickname is way too long and should be rejected completely because it exceeds 30 chars'), null);
+    assert.equal(validateNickname('Ab'), null, 'Must reject < 3 chars');
+    assert.equal(validateNickname('This nickname is too long'), null, 'Must reject > 15 chars');
     assert.equal(validateNickname('<script>alert(1)</script>'), null, 'Must reject HTML/special chars');
     assert.equal(validateNickname('User@Domain!'), null, 'Must reject disallowed symbols');
     assert.equal(validateNickname(null), null);
@@ -232,7 +232,7 @@ test('Private & Anonymous Room Lifecycle Tests', async (t) => {
       // Charlie tries to join with invalid nickname
       const invalidNickJoin = await managerC.joinAnonymousRoom(anonRoomId, 'X');
       assert.equal(invalidNickJoin.success, false);
-      assert.ok(invalidNickJoin.error?.includes('2-30 characters'));
+      assert.ok(invalidNickJoin.error?.includes('3-15 characters'));
 
       // Charlie joins with unique nickname "Quiet Hawk"
       const successfulJoin = await managerC.joinAnonymousRoom(anonRoomId, 'Quiet Hawk');

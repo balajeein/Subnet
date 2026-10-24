@@ -1,9 +1,12 @@
 import React from 'react';
-import { Laptop, Inbox, Check, X, ShieldAlert, Compass } from 'lucide-react';
-import type { Invitation } from '../types/subnet';
+import { Inbox, Check, X, Compass } from 'lucide-react';
+import type { ConversationSummary, Invitation, Peer } from '../types/subnet';
+import UserAvatar from './UserAvatar';
 
 interface RequestsViewProps {
   requests: Invitation[];
+  peers: Peer[];
+  conversations: ConversationSummary[];
   processingIds: Set<string>;
   onAccept: (invitation: Invitation) => void;
   onDecline: (invitation: Invitation) => void;
@@ -12,6 +15,8 @@ interface RequestsViewProps {
 
 export default function RequestsView({
   requests,
+  peers,
+  conversations,
   processingIds,
   onAccept,
   onDecline,
@@ -61,25 +66,35 @@ export default function RequestsView({
           </span>
         </div>
         <p className="requests-view-subheading">
-          Peers on your local network who want to start a direct conversation with you.
+          Users on your local network who want to start a direct conversation with you.
         </p>
       </div>
 
       <div className="requests-list-scroll">
         {requests.map((inv) => {
           const isProcessing = processingIds.has(inv.id);
+          const senderPeer = peers.find((peer) => peer.id === inv.senderId);
+          const senderAvatar =
+            senderPeer?.avatar ||
+            conversations.find((conversation) => conversation.peerId === inv.senderId)?.peerAvatar;
 
           return (
             <div key={inv.id} className="request-card">
               <div className="request-card-header">
                 <div className="request-peer-info">
                   <div className="request-avatar">
-                    <Laptop style={{ width: 22, height: 22, color: '#B58AE8' }} />
+                    <UserAvatar
+                      avatarType={senderAvatar?.avatarType}
+                      avatarValue={senderAvatar?.avatarValue}
+                      size={40}
+                      name={inv.senderName}
+                      alt={inv.senderName}
+                      fallbackIconColor="#B58AE8"
+                    />
                   </div>
                   <div className="request-meta">
                     <div className="request-name-row">
                       <span className="request-peer-name">{inv.senderName}</span>
-                      <span className="request-device-pill">LAN Device</span>
                     </div>
                     <span className="request-time">
                       {formatTime(inv.timestamp)}
@@ -94,11 +109,6 @@ export default function RequestsView({
               </div>
 
               <div className="request-card-footer">
-                <div className="request-transport-note">
-                  <ShieldAlert style={{ width: 13, height: 13, color: '#94a3b8', flexShrink: 0 }} />
-                  <span>Direct P2P LAN transport (Unencrypted WebSocket)</span>
-                </div>
-
                 <div className="request-actions">
                   <button
                     type="button"
