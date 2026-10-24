@@ -1899,10 +1899,12 @@ body {
   flex: 1;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
+  align-items: stretch;
+  justify-content: flex-start;
   position: relative;
   overflow: hidden;
+  height: 100%;
+  width: 100%;
 }
 
 /* Requests View */
@@ -5141,13 +5143,91 @@ body {
    SEARCHABLE NEW CHAT / RADAR VIEW
    ======================================================== */
 .radar-search-container {
+  position: relative;
   width: 100%;
   max-width: 480px;
-  margin: 16px auto 10px auto;
+  margin: 6px auto 10px auto;
   padding: 0 16px;
   display: flex;
-  justify-content: center;
-  z-index: 20;
+  flex-direction: column;
+  align-items: center;
+  z-index: 50;
+}
+
+.radar-search-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 16px;
+  right: 16px;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  box-shadow: 0 14px 36px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  z-index: 100;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.radar-dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+}
+
+.radar-dropdown-item:hover,
+.radar-dropdown-item:focus {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.radar-dropdown-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.radar-dropdown-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.radar-dropdown-peer-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.radar-dropdown-peer-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: #94a3b8;
+}
+
+.radar-dropdown-empty {
+  padding: 16px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12.5px;
 }
 
 .radar-search-input-wrap {
@@ -5302,6 +5382,452 @@ body {
 .radar-search-card-right .btn-chat-action:hover {
   background: linear-gradient(135deg, #0369a1 0%, #075985 100%);
   box-shadow: 0 2px 8px rgba(2, 132, 199, 0.4);
+}
+
+/* ========================================================
+   LIVE LAN USER COUNT STATUS STRIP
+   ======================================================== */
+.radar-live-strip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin: 10px auto 4px auto;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 16px;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.25);
+  z-index: 25;
+  user-select: none;
+}
+
+.radar-live-pulse-dot {
+  width: 6.5px;
+  height: 6.5px;
+  border-radius: 50%;
+  background: #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.85);
+  animation: pulse-live-indicator 2.4s ease-in-out infinite;
+}
+
+@keyframes pulse-live-indicator {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.85);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.9);
+    box-shadow: 0 0 3px rgba(34, 197, 94, 0.4);
+  }
+}
+
+.radar-live-text {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #4ade80;
+  text-transform: uppercase;
+}
+
+/* ========================================================
+   SCALABLE RADAR CANVAS & VIEWPORT
+   ======================================================== */
+.radar-canvas-wrapper {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Centered Radar Empty State */
+.radar-empty-state-wrap {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 0;
+  padding: 16px;
+}
+
+.radar-empty-card {
+  margin: 0;
+  max-width: 360px;
+  padding: 24px 32px;
+  gap: 10px;
+}
+
+.radar-canvas-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  user-select: none;
+  cursor: grab;
+  outline: none;
+  touch-action: none;
+}
+
+.radar-canvas-container.is-dragging {
+  cursor: grabbing;
+}
+
+.radar-canvas-world {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform-origin: 0 0;
+  will-change: transform;
+}
+
+/* Concentric Orbit Guidelines */
+.radar-grid-rings {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+}
+
+.radar-orbit-ring {
+  position: absolute;
+  border-radius: 50%;
+  border: 1px solid rgba(56, 189, 248, 0.12);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  transition: width 0.35s ease, height 0.35s ease;
+}
+
+.radar-orbit-ring.dashed {
+  border-style: dashed;
+  opacity: 0.65;
+}
+
+.radar-canvas-pulse {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(56, 189, 248, 0.12) 0%, rgba(56, 189, 248, 0) 70%);
+  width: 160px;
+  height: 160px;
+  transform: translate(-50%, -50%);
+  animation: radar-wave-canvas 4s cubic-bezier(0.1, 0.7, 0.1, 1) infinite;
+  pointer-events: none;
+}
+
+@keyframes radar-wave-canvas {
+  0% {
+    width: 80px;
+    height: 80px;
+    opacity: 0.8;
+  }
+  100% {
+    width: 480px;
+    height: 480px;
+    opacity: 0;
+  }
+}
+
+/* Center Local Device Node */
+.radar-local-node {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 15;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 7px;
+  pointer-events: auto;
+  user-select: none;
+}
+
+.radar-local-avatar-wrap {
+  position: relative;
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  border: 1.5px solid rgba(56, 189, 248, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6), 0 0 20px rgba(56, 189, 248, 0.25);
+  transition: transform 0.2s ease;
+}
+
+.radar-local-avatar-wrap:hover {
+  transform: scale(1.05);
+}
+
+.radar-local-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.radar-local-name {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #f8fafc;
+  max-width: 140px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+.radar-local-tag {
+  font-size: 11px;
+  color: #94a3b8;
+  background: rgba(255, 255, 255, 0.05);
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* Discovered Remote Peer Nodes */
+.radar-peer-node {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  outline: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  width: 100px;
+  margin-left: -50px;
+  margin-top: -38px;
+  transition: transform 0.45s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.3s ease;
+  transform-origin: center center;
+}
+
+.radar-peer-node.dimmed-by-search {
+  opacity: 0.22;
+  filter: grayscale(40%);
+  pointer-events: none;
+}
+
+.radar-peer-avatar-wrap {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1e3a5f 0%, #0f2438 100%);
+  border: 1.5px solid rgba(56, 189, 248, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5), 0 0 14px rgba(56, 189, 248, 0.22);
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.radar-peer-node:hover .radar-peer-avatar-wrap {
+  transform: scale(1.1);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.7), 0 0 24px rgba(56, 189, 248, 0.55);
+  border-color: rgba(56, 189, 248, 0.9);
+}
+
+.radar-peer-node:focus-visible .radar-peer-avatar-wrap {
+  outline: 2px solid #38bdf8;
+  outline-offset: 3px;
+}
+
+.radar-node-unread-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  background: #3b82f6;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+  border: 2px solid #0b101b;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+}
+
+.radar-node-request-badge {
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #f59e0b;
+  border: 2px solid #0b101b;
+  box-shadow: 0 0 8px rgba(245, 158, 11, 0.8);
+  animation: pulse-req 1.8s infinite;
+}
+
+@keyframes pulse-req {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.15); opacity: 0.8; }
+}
+
+.radar-peer-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+
+.radar-peer-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #f1f5f9;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 110px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.9);
+}
+
+.radar-peer-status-tag {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 10.5px;
+  color: #94a3b8;
+}
+
+.radar-peer-action-hint {
+  font-size: 10px;
+  color: #38bdf8;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  white-space: nowrap;
+}
+
+.radar-peer-node:hover .radar-peer-action-hint {
+  opacity: 1;
+}
+
+/* Drag Navigation Hint at Bottom */
+.radar-drag-hint {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 14px;
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 20px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #64748b;
+  font-size: 11.5px;
+  font-weight: 500;
+  pointer-events: none;
+  user-select: none;
+  z-index: 10;
+  transition: opacity 0.2s ease;
+}
+
+/* Side Pan Nudge Chevrons */
+.radar-side-arrow {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(15, 23, 42, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #94a3b8;
+  cursor: pointer;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: all 0.2s ease;
+  z-index: 15;
+}
+
+.radar-side-arrow:hover {
+  background: rgba(30, 41, 59, 0.85);
+  color: #38bdf8;
+  border-color: rgba(56, 189, 248, 0.35);
+  transform: translateY(-50%) scale(1.08);
+}
+
+.radar-side-left {
+  left: 14px;
+}
+
+.radar-side-right {
+  right: 14px;
+}
+
+/* Floating Search Pills */
+.radar-search-no-match-pill,
+.radar-search-match-pill {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(18, 24, 38, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 20px;
+  padding: 5px 14px;
+  font-size: 12px;
+  color: #cbd5e1;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  user-select: none;
+}
+
+.radar-search-no-match-pill {
+  border-color: rgba(244, 63, 94, 0.35);
+  color: #fda4af;
+}
+
+.btn-clear-search-pill {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #f1f5f9;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-clear-search-pill:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 /* ========================================================

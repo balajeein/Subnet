@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { ShieldAlert, WifiOff, Search, X } from 'lucide-react';
 import type {
   LocalProfile,
@@ -19,6 +19,8 @@ import FindRoomView from './components/FindRoomView';
 import RoomChatPane from './components/RoomChatPane';
 import SettingsView from './components/SettingsView';
 import UserAvatar from './components/UserAvatar';
+import RadarCanvas from './components/RadarCanvas';
+import { getUniqueRemotePeers } from './utils/radarLayout';
 import { soundPlayer } from './utils/sound';
 
 export default function App(): React.JSX.Element {
@@ -69,15 +71,36 @@ export default function App(): React.JSX.Element {
   // Guard against rapid duplicate clicks
   const [processingIds, setProcessingIds] = useState<Set<string>>(new Set());
 
-  // Search query for New Chat / Radar view
+  // Search query & dropdown state for New Chat / Radar view
   const [radarSearchQuery, setRadarSearchQuery] = useState<string>('');
+  const [isSearchOpen, setIsSearchOpen] = useState<boolean>(false);
+  const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Close search dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        searchContainerRef.current &&
+        !searchContainerRef.current.contains(e.target as Node)
+      ) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Derive unique remote peers (excluding local user, deduplicated by peer.id)
+  const uniqueRemotePeers = useMemo<Peer[]>(() => {
+    return getUniqueRemotePeers(peers, profile?.id);
+  }, [peers, profile?.id]);
 
   // Filter peers case-insensitively for New Chat / Radar
   const filteredPeers = useMemo<Peer[]>(() => {
     const query = radarSearchQuery.trim().toLowerCase();
-    if (!query) return peers;
-    return peers.filter((p) => p.name.toLowerCase().includes(query));
-  }, [peers, radarSearchQuery]);
+    if (!query) return uniqueRemotePeers;
+    return uniqueRemotePeers.filter((p) => p.name.toLowerCase().includes(query));
+  }, [uniqueRemotePeers, radarSearchQuery]);
 
   // Derive pending incoming direct chat requests
   const pendingRequests = useMemo<Invitation[]>(() => {
@@ -685,8 +708,14 @@ export default function App(): React.JSX.Element {
           ) : (
             /* Welcome / Searchable New Chat & Radar View */
             <div className="radar-view-container">
-              {/* Search Bar at the top of New Chat / Radar */}
-              <div className="radar-search-container">
+              {/* Compact Live LAN User Count Pill at the top */}
+              <div className="radar-live-strip" role="status" aria-live="polite">
+                <span className="radar-live-pulse-dot" aria-hidden="true" />
+                <span className="radar-live-text">{uniqueRemotePeers.length} LIVE</span>
+              </div>
+
+              {/* Search Bar with live dropdown underneath */}
+              <div className="radar-search-container" ref={searchContainerRef}>
                 <div className="radar-search-input-wrap">
                   <Search className="radar-search-icon" style={{ width: 15, height: 15 }} />
                   <input
@@ -694,10 +723,17 @@ export default function App(): React.JSX.Element {
                     className="radar-search-input"
                     placeholder="Search nearby peers by name..."
                     value={radarSearchQuery}
-                    onChange={(e) => setRadarSearchQuery(e.target.value)}
+                    onFocus={() => setIsSearchOpen(true)}
+                    onClick={() => setIsSearchOpen(true)}
+                    onChange={(e) => {
+                      setRadarSearchQuery(e.target.value);
+                      setIsSearchOpen(true);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Escape') {
+                        setIsSearchOpen(false);
                         setRadarSearchQuery('');
+                        (e.target as HTMLInputElement).blur();
                       }
                     }}
                     aria-label="Search nearby peers"
@@ -706,7 +742,10 @@ export default function App(): React.JSX.Element {
                     <button
                       type="button"
                       className="radar-search-clear-btn"
-                      onClick={() => setRadarSearchQuery('')}
+                      onClick={() => {
+                        setRadarSearchQuery('');
+                        setIsSearchOpen(false);
+                      }}
                       title="Clear search (Esc)"
                       aria-label="Clear search"
                     >
@@ -714,47 +753,16 @@ export default function App(): React.JSX.Element {
                     </button>
                   )}
                 </div>
-              </div>
 
-              {peers.length === 0 ? (
-                <div className="empty-state-card">
-                  <WifiOff style={{ width: 22, height: 22, color: '#94a3b8' }} />
-                  <h2 className="empty-state-title">No nearby peers found</h2>
-                  <p className="empty-state-desc">
-                    Open Subnet on another Mac or PC on the same Wi-Fi or Ethernet network.
-                    Discovery happens automatically over Bonjour/mDNS without internet access.
-                  </p>
-                  <div className="empty-state-features">
-                    <span className="feature-pill">Local LAN Only</span>
-                    <span className="feature-pill">Zero Cloud</span>
-                    <span className="feature-pill">Direct P2P</span>
-                  </div>
-                </div>
-              ) : radarSearchQuery.trim() ? (
-                /* Filtered Search Results View */
-                filteredPeers.length === 0 ? (
-                  <div className="empty-state-card">
-                    <Search style={{ width: 22, height: 22, color: '#94a3b8' }} />
-                    <h2 className="empty-state-title">No peers match "{radarSearchQuery}"</h2>
-                    <p className="empty-state-desc">
-                      No nearby peers match your search. Clear the search field to view all nearby devices.
-                    </p>
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => setRadarSearchQuery('')}
-                      style={{ marginTop: 14 }}
-                    >
-                      Clear Search
-                    </button>
-                  </div>
-                ) : (
-                  <div className="radar-search-results-list">
-                    <div className="radar-search-header-meta">
-                      <span>Matching peers ({filteredPeers.length})</span>
-                    </div>
-                    <div className="radar-search-cards-grid">
-                      {filteredPeers.map((peer) => {
+                {/* Dropdown list directly underneath the search bar */}
+                {isSearchOpen && uniqueRemotePeers.length > 0 && (
+                  <div className="radar-search-dropdown" role="listbox" aria-label="Search results">
+                    {filteredPeers.length === 0 ? (
+                      <div className="radar-dropdown-empty">
+                        <span>No peers match "{radarSearchQuery}"</span>
+                      </div>
+                    ) : (
+                      filteredPeers.map((peer) => {
                         const peerConv = conversations.find((c) => c.peerId === peer.id);
                         const hasUnread = (peerConv?.unreadCount || 0) > 0;
                         const hasPendingInv = peerConv?.status === 'pending_incoming';
@@ -762,140 +770,68 @@ export default function App(): React.JSX.Element {
                         return (
                           <div
                             key={peer.id}
-                            className="radar-search-peer-card"
-                            onClick={() =>
-                              changeActiveView({ type: 'chat', peerId: peer.id, peer })
-                            }
-                            role="button"
+                            className="radar-dropdown-item"
+                            role="option"
                             tabIndex={0}
+                            onClick={() => {
+                              setIsSearchOpen(false);
+                              changeActiveView({ type: 'chat', peerId: peer.id, peer });
+                            }}
                             onKeyDown={(e) => {
                               if (e.key === 'Enter') {
+                                setIsSearchOpen(false);
                                 changeActiveView({ type: 'chat', peerId: peer.id, peer });
                               }
                             }}
                           >
-                            <div className="radar-search-card-left">
-                              <UserAvatar
-                                avatarType={peer.avatar?.avatarType}
-                                avatarValue={peer.avatar?.avatarValue}
-                                size={40}
-                                fallbackIconColor="#38bdf8"
-                              />
-                              <div className="radar-search-card-info">
-                                <div className="radar-search-name-row">
-                                  <span className="radar-search-peer-name">{peer.name}</span>
-                                  {hasUnread && (
-                                    <span className="radar-unread-badge">
-                                      {peerConv!.unreadCount}
-                                    </span>
-                                  )}
-                                </div>
-                                <span className="radar-search-peer-status">
-                                  <span className="status-dot active" />
-                                  {hasPendingInv
-                                    ? 'Incoming Chat Request'
-                                    : `Online • ${peer.host || 'LAN'}:${peer.port || ''}`}
-                                </span>
+                            <UserAvatar
+                              avatarType={peer.avatar?.avatarType}
+                              avatarValue={peer.avatar?.avatarValue}
+                              size={36}
+                              fallbackIconColor="#38bdf8"
+                            />
+                            <div className="radar-dropdown-info">
+                              <div className="radar-dropdown-name-row">
+                                <span className="radar-dropdown-peer-name">{peer.name}</span>
+                                {hasUnread && (
+                                  <span className="radar-unread-badge">
+                                    {peerConv!.unreadCount}
+                                  </span>
+                                )}
                               </div>
-                            </div>
-                            <div className="radar-search-card-right">
-                              <button
-                                type="button"
-                                className="btn-chat-action"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  changeActiveView({ type: 'chat', peerId: peer.id, peer });
-                                }}
-                              >
-                                {hasPendingInv ? 'View Request' : 'Chat'}
-                              </button>
+                              <span className="radar-dropdown-peer-status">
+                                <span className="status-dot active" />
+                                <span>{hasPendingInv ? 'Requesting chat' : 'Nearby'}</span>
+                              </span>
                             </div>
                           </div>
                         );
-                      })}
-                    </div>
+                      })
+                    )}
                   </div>
-                )
-              ) : (
-                /* Circular Radar View when not actively querying */
-                <div className="radar-stage">
-                  <div className="radar-ring ring-1" />
-                  <div className="radar-ring ring-2" />
-                  <div className="radar-ring ring-3" />
-                  <div className="radar-pulse" />
+                )}
+              </div>
 
-                  <div className="local-device-node">
-                    <div className="device-avatar-container">
-                      <UserAvatar
-                        avatarType={settings.avatarType}
-                        avatarValue={settings.avatarValue}
-                        size={48}
-                        fallbackIconColor="#38bdf8"
-                      />
-                    </div>
-                    <div className="device-meta">
-                      <span className="device-name">
-                        {profile?.name || 'Local Mac'}
-                      </span>
-                      <span className="device-tag">Your Device</span>
-                    </div>
+              {uniqueRemotePeers.length === 0 ? (
+                <div className="radar-empty-state-wrap">
+                  <div className="empty-state-card radar-empty-card">
+                    <WifiOff style={{ width: 24, height: 24, color: '#94a3b8' }} />
+                    <h2 className="empty-state-title">No nearby users</h2>
+                    <p className="empty-state-desc">Try another Wi-Fi or network connection.</p>
                   </div>
-
-                  {peers.map((peer, index) => {
-                    const total = peers.length;
-                    const angle = (index / total) * (2 * Math.PI) - Math.PI / 2;
-                    const radius = 150;
-                    const tx = Math.round(Math.cos(angle) * radius);
-                    const ty = Math.round(Math.sin(angle) * radius);
-
-                    const peerConv = conversations.find((c) => c.peerId === peer.id);
-                    const hasUnread = (peerConv?.unreadCount || 0) > 0;
-                    const hasPendingInv = peerConv?.status === 'pending_incoming';
-
-                    return (
-                      <button
-                        key={peer.id}
-                        type="button"
-                        className={`discovered-peer-node ${hasPendingInv ? 'has-invitation' : ''}`}
-                        onClick={() =>
-                          changeActiveView({ type: 'chat', peerId: peer.id, peer })
-                        }
-                        title={`Click to chat with ${peer.name}`}
-                        style={
-                          {
-                            '--tx': `${tx}px`,
-                            '--ty': `${ty}px`,
-                            transform: `translate(${tx}px, ${ty}px)`,
-                          } as React.CSSProperties
-                        }
-                      >
-                        <div className="peer-avatar-container">
-                          <UserAvatar
-                            avatarType={peer.avatar?.avatarType}
-                            avatarValue={peer.avatar?.avatarValue}
-                            size={36}
-                            fallbackIconColor="#38bdf8"
-                          />
-                          {hasUnread && (
-                            <span className="radar-unread-badge">
-                              {peerConv!.unreadCount}
-                            </span>
-                          )}
-                          {hasPendingInv && (
-                            <span className="radar-invitation-dot" title="Incoming request" />
-                          )}
-                        </div>
-                        <div className="peer-meta">
-                          <span className="peer-name">{peer.name}</span>
-                          <span className="peer-tag">
-                            {hasPendingInv ? 'Requesting chat' : 'Nearby'}
-                          </span>
-                          <span className="peer-chat-hint">Click to chat</span>
-                        </div>
-                      </button>
-                    );
-                  })}
                 </div>
+              ) : (
+                /* Scalable Interactive Radar Canvas always in background */
+                <RadarCanvas
+                  peers={uniqueRemotePeers}
+                  localProfile={profile}
+                  settings={settings}
+                  conversations={conversations}
+                  searchQuery={radarSearchQuery}
+                  onSelectPeer={(peer: Peer) =>
+                    changeActiveView({ type: 'chat', peerId: peer.id, peer })
+                  }
+                />
               )}
             </div>
           )}
@@ -905,7 +841,7 @@ export default function App(): React.JSX.Element {
         <footer className="main-footer-bar">
           <div className="footer-left">
             <span>
-              {peers.length} {peers.length === 1 ? 'peer' : 'peers'} nearby on LAN
+              {uniqueRemotePeers.length} {uniqueRemotePeers.length === 1 ? 'peer' : 'peers'} nearby on LAN
             </span>
             {pendingRequests.length > 0 && (
               <span className="footer-requests-indicator" onClick={() => changeActiveView({ type: 'requests' })}>

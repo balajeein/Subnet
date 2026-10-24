@@ -27,15 +27,15 @@
       "peerId": "recipient-node-2222",
       "peerName": "Bob",
       "status": "accepted",
-      "lastTimestamp": 1792801441105,
+      "lastTimestamp": 1792820880660,
       "unreadCount": 0,
       "messages": [
         {
-          "id": "ced82552-e33f-4b63-873c-47f73a93ef88",
+          "id": "3d6ee836-d347-4a26-bbb9-2d199c0058f8",
           "senderId": "sender-node-1111",
           "recipientId": "recipient-node-2222",
           "text": "Hello from Alice on LAN!",
-          "timestamp": 1792801441105,
+          "timestamp": 1792820880660,
           "status": "delivered"
         }
       ],
@@ -78,7 +78,20 @@
     "2ec17060-8cba-4d84-8a07-fdee5231afbe",
     "47b1bb5e-1104-4aa4-ab77-d23eb05033f7",
     "bbbd151f-3fb9-4719-841a-23d2092a0ee9",
-    "a93da572-e995-4b21-b481-dfbe0326b86e"
+    "a93da572-e995-4b21-b481-dfbe0326b86e",
+    "d8e5bc21-72fc-4a55-85cc-2abca8b7bd6a",
+    "5653d742-8665-4861-bde2-921c9f27bae4",
+    "e855ddc6-b27d-47d8-be9b-1bd020b80c2b",
+    "5080e02f-8636-4ffa-8fa5-e0e374cdc471",
+    "e9656fa4-f78e-4f0b-91db-fa05542ab1f3",
+    "34af4fe9-d200-4e90-9675-dfd635770bae",
+    "5554e67b-16b5-450a-9857-a5ba9d531337",
+    "1981c405-b686-4ab9-b235-91e4e38d2009",
+    "dbd4a810-44fb-483e-a8d5-a9375ed5e000",
+    "b6513efa-bf4e-489d-946d-3c6a4cdca4a3",
+    "bba07855-b7c0-45e6-897a-7172b40ea96d",
+    "e29114b7-2c70-486d-acd8-39226cf841bd",
+    "1ded05c4-6b21-4a49-adfc-b13899a5095b"
   ],
   "cachedPeerAvatars": {
     "node-bravo-2222": {
@@ -120,6 +133,14 @@
     "25ba3eaf-5067-4b4e-80e1-02c8befa5878": {
       "avatarType": "preset",
       "avatarValue": "preset-falcon"
+    },
+    "d3ffb153-35f2-4935-a100-87f73c46ca92": {
+      "avatarType": "preset",
+      "avatarValue": "preset-owl"
+    },
+    "0603409c-7db6-4b37-a2bf-afe9b1badfaf": {
+      "avatarType": "preset",
+      "avatarValue": "preset-astro"
     }
   }
 }
