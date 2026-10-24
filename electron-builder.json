@@ -1,0 +1,24 @@
+{
+  "appId": "com.subnet.app",
+  "productName": "Subnet",
+  "directories": {
+    "output": "release"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "category": "public.app-category.social-networking",
+    "target": ["dmg", "zip"],
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "extendInfo": {
+      "NSLocalNetworkUsageDescription": "Subnet uses your local network to discover and connect with nearby devices without internet access.",
+      "NSBonjourServices": [
+        "_subnet._tcp"
+      ]
+    }
+  }
+}

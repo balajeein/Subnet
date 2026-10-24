@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "conversations": {
+    "sender-node-1111": {
+      "peerId": "sender-node-1111",
+      "peerName": "Alice",
+      "status": "accepted",
+      "lastTimestamp": 1792799436693,
+      "unreadCount": 1,
+      "messages": [
+        {
+          "id": "41220e52-9eb7-4548-895f-92d1dde1b8a6",
+          "senderId": "sender-node-1111",
+          "recipientId": "recipient-node-2222",
+          "text": "Hello from Alice on LAN!",
+          "timestamp": 1792799436693,
+          "status": "delivered"
+        }
+      ],
+      "lastMessage": "Hello from Alice on LAN!",
+      "peerAvatar": {
+        "avatarType": "default",
+        "avatarValue": ""
+      }
+    },
+    "recipient-node-2222": {
+      "peerId": "recipient-node-2222",
+      "peerName": "Bob",
+      "status": "accepted",
+      "lastTimestamp": 1792801441105,
+      "unreadCount": 0,
+      "messages": [
+        {
+          "id": "ced82552-e33f-4b63-873c-47f73a93ef88",
+          "senderId": "sender-node-1111",
+          "recipientId": "recipient-node-2222",
+          "text": "Hello from Alice on LAN!",
+          "timestamp": 1792801441105,
+          "status": "delivered"
+        }
+      ],
+      "lastMessage": "Hello from Alice on LAN!"
+    }
+  },
+  "rooms": {},
+  "closedRoomIds": [
+    "794b5314-fddd-4962-a404-8decb0561ceb",
+    "6f0ef4ab-7139-4927-b420-2759301714df",
+    "9cccace9-3288-4bbd-a638-7ca329c91fe8",
+    "c134b6aa-9f97-4401-89e8-6d630805a946",
+    "0602be15-7b90-407c-8164-97df3b732618",
+    "e6b6b8d3-1ae5-4099-b636-cb412b152f1d",
+    "f0d2f684-2d08-4cfb-a222-da45dddf5bf4",
+    "a08bfd4e-2529-4236-98da-1a3be51a8d8d",
+    "14a2363c-007a-4c4f-8679-2c3201eabf68",
+    "2520f58a-850b-46e2-9c7e-1921f1994442",
+    "4ff413f0-40f4-46ef-abb0-7c67deaa47c9",
+    "40c6dbaa-063e-4ba0-bae6-8e83cf522863",
+    "888ad0c5-b1b0-4df3-a88a-90540531c9df",
+    "737a1485-8e5c-408b-8670-4cd16385da7c",
+    "dup-room-1792795441575",
+    "22cfe032-d09c-40c4-ba5f-477d364c4b19",
+    "024dd341-2938-4449-a3fa-85bc6ddfe5e2",
+    "c65b20fe-ca1e-409f-ad74-66b7c8dbb41d",
+    "4fb6a5cd-d5e1-4c06-900c-e55ed0d64a7f",
+    "d0377bdc-fcc4-4b05-9884-a62c214bd243",
+    "b23332f4-c79c-45fc-9847-7a03cf8f9fbe",
+    "5f262fff-b6bb-4990-962a-76bade288d77",
+    "0cd4c917-365e-41d4-9447-4d4c3d4583aa",
+    "45d28cd2-d221-414e-a349-4a9636f962eb",
+    "92637d4b-3ca3-4d68-90e9-506784ef1dea",
+    "3f7ca41e-1375-4b1a-83d9-742994e10441",
+    "16fa91fa-ae5b-4a2b-a895-d3eac7bfd5cd",
+    "f0f5ebea-7733-4444-8a4d-0834ff26982a",
+    "d7daecd8-893a-4a66-814c-f2ecdc17be2e",
+    "3da1c9cc-c5a2-44a2-99bf-3983da8c23b0",
+    "8b69502f-f5b0-406b-baa4-da356865b135",
+    "2ec17060-8cba-4d84-8a07-fdee5231afbe",
+    "47b1bb5e-1104-4aa4-ab77-d23eb05033f7",
+    "bbbd151f-3fb9-4719-841a-23d2092a0ee9",
+    "a93da572-e995-4b21-b481-dfbe0326b86e"
+  ],
+  "cachedPeerAvatars": {
+    "node-bravo-2222": {
+      "avatarType": "default",
+      "avatarValue": ""
+    },
+    "sender-node-1111": {
+      "avatarType": "default",
+      "avatarValue": ""
+    },
+    "recipient-node-2222": {
+      "avatarType": "default",
+      "avatarValue": ""
+    },
+    "7654319e-d956-41b6-bcea-95dd784ae85b": {
+      "avatarType": "preset",
+      "avatarValue": "preset-owl"
+    },
+    "fbe402b7-aaed-4430-9a00-0e82a3197bf4": {
+      "avatarType": "preset",
+      "avatarValue": "preset-astro"
+    },
+    "3c6324c5-15d7-4807-8949-eafe4cd3d86f": {
+      "avatarType": "preset",
+      "avatarValue": "preset-fox"
+    },
+    "b12bb794-4d19-4d41-91aa-e7fbc4567220": {
+      "avatarType": "preset",
+      "avatarValue": "preset-fox"
+    },
+    "7d969ad8-cdcb-4e48-9aff-c3dbf0982d95": {
+      "avatarType": "preset",
+      "avatarValue": "preset-astro"
+    },
+    "786cec5d-acbb-4f2e-8d62-e4c18108c0d3": {
+      "avatarType": "preset",
+      "avatarValue": "preset-owl"
+    },
+    "25ba3eaf-5067-4b4e-80e1-02c8befa5878": {
+      "avatarType": "preset",
+      "avatarValue": "preset-falcon"
+    }
+  }
+}
