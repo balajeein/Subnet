@@ -34,7 +34,7 @@ export default function ToastNotification({
         if (toast.type === 'info') {
           return (
             <div key={toast.id} className="toast-item toast-info">
-              <CheckCircle2 style={{ width: 16, height: 16, color: '#38bdf8', flexShrink: 0 }} />
+              <CheckCircle2 style={{ width: 16, height: 16, color: '#36B987', flexShrink: 0 }} />
               <span className="toast-info-text">{toast.message}</span>
               <button
                 type="button"
@@ -56,7 +56,7 @@ export default function ToastNotification({
           <div key={toast.id} className="toast-item toast-invitation">
             <div className="toast-header">
               <div className="toast-tag" onClick={onOpenRequests} role="button" tabIndex={0}>
-                <MessageSquare style={{ width: 12, height: 12, color: '#38bdf8' }} />
+                <MessageSquare style={{ width: 12, height: 12, color: '#B58AE8' }} />
                 <span>New Chat Request</span>
               </div>
               <button
@@ -77,7 +77,7 @@ export default function ToastNotification({
               title="Click to view in Requests"
             >
               <div className="toast-avatar">
-                <Laptop style={{ width: 16, height: 16, color: '#38bdf8' }} />
+                <Laptop style={{ width: 16, height: 16, color: '#B58AE8' }} />
               </div>
               <div className="toast-meta">
                 <span className="toast-sender">{inv.senderName}</span>

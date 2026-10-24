@@ -13,6 +13,7 @@ import {
   Copy,
   RefreshCw,
   Cpu,
+  User,
 } from 'lucide-react';
 import type { LocalProfile, UserSettings, NetworkStatus } from '../types/subnet';
 import { PRESET_AVATARS, getPresetAvatar } from '../utils/avatars';
@@ -89,6 +90,42 @@ export default function SettingsView({
     }
   };
 
+  const [isLoadingSystemAvatar, setIsLoadingSystemAvatar] = useState(false);
+
+  const handleUseSystemPhoto = async () => {
+    setAvatarError(null);
+    setIsLoadingSystemAvatar(true);
+    try {
+      if (window.subnet?.getSystemAvatar) {
+        const res = await window.subnet.getSystemAvatar();
+        if (res.success && res.dataUrl) {
+          setTempAvatarType('custom');
+          setTempAvatarValue(res.dataUrl);
+          onShowToast('Loaded system account photo');
+        } else {
+          setAvatarError(res.error || 'No system account photo available.');
+        }
+      } else {
+        setAvatarError('System photo extraction is not available in this environment.');
+      }
+    } catch (err: any) {
+      setAvatarError(err.message || 'Failed to retrieve system account photo');
+    } finally {
+      setIsLoadingSystemAvatar(false);
+    }
+  };
+
+  const handleToggleSharing = async () => {
+    const current = settings.shareAvatarWithPeers !== false;
+    const nextVal = !current;
+    try {
+      await onUpdateSettings({ shareAvatarWithPeers: nextVal });
+      onShowToast(nextVal ? 'Avatar sharing enabled for LAN peers' : 'Avatar sharing disabled (peers see pastel initials)');
+    } catch (err: any) {
+      onShowToast(err.message || 'Failed to update sharing preference');
+    }
+  };
+
   const handleChooseFromMac = async () => {
     setAvatarError(null);
     try {
@@ -110,14 +147,27 @@ export default function SettingsView({
     setIsSaving(true);
     setAvatarError(null);
     try {
+      let defaultType: 'default' | 'custom' = 'default';
+      let defaultValue = '';
+      if (window.subnet?.getSystemAvatar) {
+        const sys = await window.subnet.getSystemAvatar();
+        if (sys.success && sys.dataUrl) {
+          defaultType = 'custom';
+          defaultValue = sys.dataUrl;
+        }
+      }
       await onUpdateSettings({
-        avatarType: 'default',
-        avatarValue: '',
+        avatarType: defaultType,
+        avatarValue: defaultValue,
       });
-      setTempAvatarType('default');
-      setTempAvatarValue('');
+      setTempAvatarType(defaultType);
+      setTempAvatarValue(defaultValue);
       setIsChangingPicture(false);
-      onShowToast('Profile picture reset to default device icon');
+      onShowToast(
+        defaultType === 'custom'
+          ? 'Reset to device account profile picture'
+          : 'Reset to default pastel avatar'
+      );
     } catch (err: any) {
       setAvatarError(err.message || 'Failed to reset profile picture');
     } finally {
@@ -201,7 +251,7 @@ export default function SettingsView({
                 avatarType={settings.avatarType}
                 avatarValue={settings.avatarValue}
                 size={80}
-                fallbackIconColor="#38bdf8"
+                fallbackIconColor="#B58AE8"
               />
               <button
                 type="button"
@@ -224,22 +274,40 @@ export default function SettingsView({
               <div className="profile-status-desc">
                 {settings.avatarType === 'preset' && currentPreset ? (
                   <span className="avatar-status-pill">
-                    <Sparkles style={{ width: 13, height: 13, color: '#38bdf8' }} />
+                    <Sparkles style={{ width: 13, height: 13, color: '#B58AE8' }} />
                     Preset Avatar: {currentPreset.name}
                   </span>
                 ) : settings.avatarType === 'custom' ? (
                   <span className="avatar-status-pill">
                     <Check style={{ width: 13, height: 13, color: '#10b981' }} />
-                    Custom Image Avatar
+                    Custom Profile Photo
                   </span>
                 ) : (
                   <span className="avatar-status-pill">
                     <ShieldCheck style={{ width: 13, height: 13, color: '#94a3b8' }} />
-                    Default Device Icon
+                    Default Pastel Avatar
                   </span>
                 )}
               </div>
             </div>
+          </div>
+
+          {/* User-Controlled LAN Avatar Sharing Preference */}
+          <div className="profile-sharing-row">
+            <div className="profile-sharing-info">
+              <span className="profile-sharing-title">Share Profile Photo on Local Network</span>
+              <span className="profile-sharing-subtitle">
+                Allow nearby Subnet peers on LAN to see your avatar. When turned off, peers see your pastel monogram fallback instead.
+              </span>
+            </div>
+            <label className="apple-switch" title="Toggle profile photo sharing on LAN">
+              <input
+                type="checkbox"
+                checked={settings.shareAvatarWithPeers !== false}
+                onChange={handleToggleSharing}
+              />
+              <span className="apple-switch-slider" />
+            </label>
           </div>
 
           <div className="profile-actions-row">
@@ -283,7 +351,7 @@ export default function SettingsView({
           >
             <div className="tech-toggle-left">
               <div className="tech-toggle-icon-wrap">
-                <Cpu style={{ width: 18, height: 18, color: '#38bdf8' }} />
+                <Cpu style={{ width: 18, height: 18, color: '#B58AE8' }} />
               </div>
               <div className="tech-toggle-meta">
                 <h3 className="tech-details-title">General</h3>
@@ -480,7 +548,7 @@ export default function SettingsView({
                     avatarType={tempAvatarType}
                     avatarValue={tempAvatarValue}
                     size={64}
-                    fallbackIconColor="#38bdf8"
+                    fallbackIconColor="#B58AE8"
                   />
                 </div>
                 <div className="picker-preview-meta">
@@ -495,18 +563,30 @@ export default function SettingsView({
                 </div>
               </div>
 
-              {/* Choose from Mac native picker */}
-              <div className="picker-mac-section">
+              {/* Photo Sources: OS Account Picture & Local File Picker */}
+              <div className="picker-photo-sources">
+                <button
+                  type="button"
+                  className="btn-use-os-avatar"
+                  onClick={handleUseSystemPhoto}
+                  disabled={isLoadingSystemAvatar}
+                  title="Retrieve account photo from macOS System Settings"
+                >
+                  <User style={{ width: 15, height: 15 }} />
+                  <span>{isLoadingSystemAvatar ? 'Reading Account Photo...' : 'Use macOS Account Photo'}</span>
+                </button>
+
                 <button
                   type="button"
                   className="btn-choose-mac"
                   onClick={handleChooseFromMac}
+                  title="Choose a photo file from your Mac"
                 >
-                  <Upload style={{ width: 16, height: 16 }} />
-                  <span>Choose from Mac...</span>
+                  <Upload style={{ width: 15, height: 15 }} />
+                  <span>Choose Photo File...</span>
                 </button>
-                <span className="picker-hint">PNG, JPEG, WebP, or GIF (max 10MB)</span>
               </div>
+              <span className="picker-hint">PNG, JPEG, WebP, or GIF (max 10MB, auto-compressed to 96×96)</span>
 
               {/* Preset illustrated avatars grid */}
               <div className="preset-grid-section">
@@ -545,11 +625,19 @@ export default function SettingsView({
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => {
+                  onClick={async () => {
+                    if (window.subnet?.getSystemAvatar) {
+                      const sys = await window.subnet.getSystemAvatar();
+                      if (sys.success && sys.dataUrl) {
+                        setTempAvatarType('custom');
+                        setTempAvatarValue(sys.dataUrl);
+                        return;
+                      }
+                    }
                     setTempAvatarType('default');
                     setTempAvatarValue('');
                   }}
-                  title="Select default device icon"
+                  title="Reset to default device profile picture"
                 >
                   Reset to Default
                 </button>

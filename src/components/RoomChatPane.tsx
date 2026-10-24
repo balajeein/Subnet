@@ -7,12 +7,9 @@ import {
   ShieldAlert,
   LogOut,
   Info,
-  Plus,
   Paperclip,
-  Image as ImageIcon,
   Camera,
-  Video,
-  X,
+  Smile,
 } from 'lucide-react';
 import type {
   RoomSummary,
@@ -21,9 +18,9 @@ import type {
   FileTransferProgress,
 } from '../types/subnet';
 import UserAvatar from './UserAvatar';
-import { getAnonymousAvatarForMember } from '../utils/avatars';
-import FilePreviewModal from './FilePreviewModal';
+import MascotAvatar from './MascotAvatar';
 import CameraCaptureModal from './CameraCaptureModal';
+import MediaViewerModal, { ViewingMedia } from './MediaViewerModal';
 import AttachmentBubble from './AttachmentBubble';
 
 interface RoomChatPaneProps {
@@ -46,19 +43,14 @@ export default function RoomChatPane({
   const [showLeaveConfirm, setShowLeaveConfirm] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   // Attachment state
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
-  const [previewFile, setPreviewFile] = useState<{
-    filePath: string;
-    fileName: string;
-    fileSize: number;
-    mimeType: string;
-    thumbnail?: string;
-  } | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiMenuRef = useRef<HTMLDivElement>(null);
   const [cameraModalMode, setCameraModalMode] = useState<'photo' | 'video' | null>(null);
+  const [viewingMedia, setViewingMedia] = useState<ViewingMedia | null>(null);
   const [transferProgressMap, setTransferProgressMap] = useState<Record<string, FileTransferProgress>>({});
-  const attachmentMenuRef = useRef<HTMLDivElement>(null);
 
   const isClosed = room.status === 'closed';
   const isAnonymous = room.type === 'anonymous';
@@ -117,32 +109,17 @@ export default function RoomChatPane({
     };
   }, [room.id]);
 
-  // Click outside or Escape to close attachment menu
+  // Click outside to close emoji picker
   useEffect(() => {
-    if (!showAttachmentMenu) return;
-
-    const handleDocumentClick = (e: MouseEvent) => {
-      if (
-        attachmentMenuRef.current &&
-        !attachmentMenuRef.current.contains(e.target as Node)
-      ) {
-        setShowAttachmentMenu(false);
+    if (!showEmojiPicker) return;
+    const handleEmojiClick = (e: MouseEvent) => {
+      if (emojiMenuRef.current && !emojiMenuRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
       }
     };
-
-    const handleDocumentKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowAttachmentMenu(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleDocumentClick);
-    document.addEventListener('keydown', handleDocumentKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentClick);
-      document.removeEventListener('keydown', handleDocumentKeyDown);
-    };
-  }, [showAttachmentMenu]);
+    document.addEventListener('mousedown', handleEmojiClick);
+    return () => document.removeEventListener('mousedown', handleEmojiClick);
+  }, [showEmojiPicker]);
 
   // Scroll to bottom when new messages arrive
   useEffect(() => {
@@ -156,52 +133,50 @@ export default function RoomChatPane({
     const text = inputText.trim();
     setInputText('');
     setIsSending(true);
+    inputRef.current?.focus();
 
     try {
       if (window.subnet?.sendRoomMessage) {
         const res = await window.subnet.sendRoomMessage(room.id, text);
         if (!res.success) {
           setErrorMessage(res.error || 'Failed to send room message');
+          setInputText(text);
         }
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Error sending room message');
+      setInputText(text);
     } finally {
       setIsSending(false);
+      inputRef.current?.focus();
     }
   };
 
-  const handleSelectFile = async (filterType: 'all' | 'media' = 'all') => {
-    setShowAttachmentMenu(false);
+  const handleAttachFiles = async () => {
     try {
-      const selected = await window.subnet.selectAttachmentFile(filterType);
-      if (selected && selected.success && selected.file) {
-        setPreviewFile(selected.file);
+      const selected = await window.subnet.selectAttachmentFiles();
+      if (!selected || !selected.success || !selected.files || selected.files.length === 0) {
+        inputRef.current?.focus();
+        return;
       }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to select file');
-    }
-  };
 
-  const handleConfirmSendFile = async (caption?: string) => {
-    if (!previewFile) return;
-    const file = previewFile;
-    setPreviewFile(null);
-    setIsSending(true);
-    setErrorMessage(null);
+      setIsSending(true);
+      setErrorMessage(null);
 
-    try {
-      const res = await window.subnet.sendAttachment(room.id, 'room', file.filePath, caption);
-      if (res.success) {
-        const stored = await window.subnet.getRoomMessages(room.id);
-        if (Array.isArray(stored)) setMessages(stored);
-      } else {
-        setErrorMessage(res.error || 'Failed to send file');
+      for (const file of selected.files) {
+        const res = await window.subnet.sendAttachment(room.id, 'room', file.filePath);
+        if (!res.success) {
+          setErrorMessage(res.error || `Failed to send ${file.fileName}`);
+        }
       }
+
+      const stored = await window.subnet.getRoomMessages(room.id);
+      if (Array.isArray(stored)) setMessages(stored);
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to send file');
+      setErrorMessage(err.message || 'Failed to send attachment');
     } finally {
       setIsSending(false);
+      inputRef.current?.focus();
     }
   };
 
@@ -296,12 +271,8 @@ export default function RoomChatPane({
             <ArrowLeft style={{ width: 17, height: 17 }} />
           </button>
 
-          <div className={`room-header-avatar ${isAnonymous ? 'anon' : 'private'}`}>
-            {isAnonymous ? (
-              <VenetianMask style={{ width: 18, height: 18, color: '#c084fc' }} />
-            ) : (
-              <Users style={{ width: 18, height: 18, color: '#38bdf8' }} />
-            )}
+          <div className="room-header-avatar">
+            <MascotAvatar id={room.id} name={room.name} size={32} />
           </div>
 
           <div className="room-header-meta">
@@ -357,7 +328,7 @@ export default function RoomChatPane({
       {room.status === 'invited' && (
         <div className="chat-invitation-action-banner">
           <div className="invitation-action-info">
-            <Users style={{ width: 16, height: 16, color: '#38bdf8', flexShrink: 0 }} />
+            <Users style={{ width: 16, height: 16, color: '#B58AE8', flexShrink: 0 }} />
             <span>You have been invited to this private room. Accept to join?</span>
           </div>
           <div className="invitation-action-buttons">
@@ -425,19 +396,16 @@ export default function RoomChatPane({
             return (
               <div
                 key={msg.id}
-                className={`room-message-row ${isSelf ? 'outgoing' : 'incoming'} ${
-                  isConsecutive ? 'consecutive' : ''
-                }`}
+                className={`room-message-row ${isSelf ? 'outgoing' : 'incoming'} ${isConsecutive ? 'consecutive' : ''
+                  }`}
               >
                 {!isSelf && !isConsecutive && (
                   <div className="room-message-sender-header">
                     <div className="room-message-avatar-wrap">
                       {isAnonymous ? (
-                        <UserAvatar
-                          avatarType="preset"
-                          avatarValue={
-                            getAnonymousAvatarForMember(room.id, msg.senderId, room.members).id
-                          }
+                        <MascotAvatar
+                          id={msg.senderId || senderDisplayName}
+                          name={senderDisplayName}
                           size={22}
                         />
                       ) : (
@@ -445,7 +413,9 @@ export default function RoomChatPane({
                           avatarType={member?.avatar?.avatarType || msg.senderAvatar?.avatarType}
                           avatarValue={member?.avatar?.avatarValue || msg.senderAvatar?.avatarValue}
                           size={22}
-                          fallbackIconColor="#38bdf8"
+                          name={senderDisplayName}
+                          alt={senderDisplayName}
+                          fallbackIconColor="#B58AE8"
                         />
                       )}
                     </div>
@@ -465,6 +435,7 @@ export default function RoomChatPane({
                       onCancel={(tid) => handleCancelTransfer(tid)}
                       onShowInFinder={(p) => handleShowInFolder(p)}
                       onOpenFile={(p) => handleOpenFile(p)}
+                      onViewMedia={(media) => setViewingMedia(media)}
                     />
                   )}
                   {msg.text ? <p className="room-message-text">{msg.text}</p> : null}
@@ -497,11 +468,9 @@ export default function RoomChatPane({
               <div key={member.id} className="member-item-row">
                 <div className="member-item-avatar-wrap">
                   {isAnonymous ? (
-                    <UserAvatar
-                      avatarType="preset"
-                      avatarValue={
-                        getAnonymousAvatarForMember(room.id, member.id, room.members).id
-                      }
+                    <MascotAvatar
+                      id={member.id}
+                      name={member.nickname}
                       size={24}
                     />
                   ) : (
@@ -509,7 +478,9 @@ export default function RoomChatPane({
                       avatarType={member.avatar?.avatarType}
                       avatarValue={member.avatar?.avatarValue}
                       size={24}
-                      fallbackIconColor="#38bdf8"
+                      name={member.nickname}
+                      alt={member.nickname}
+                      fallbackIconColor="#B58AE8"
                     />
                   )}
                 </div>
@@ -530,96 +501,81 @@ export default function RoomChatPane({
 
       {/* Message Input Form */}
       <form onSubmit={handleSendMessage} className="room-input-bar">
-        {/* Attachment + Button & Menu */}
-        <div className="chat-attachment-container" ref={attachmentMenuRef}>
+        {/* Attachment (Finder picker) */}
+        <button
+          type="button"
+          className="chat-composer-action-btn"
+          onClick={handleAttachFiles}
+          disabled={isClosed || isSending}
+          title="Attach files"
+          aria-label="Attach files"
+        >
+          <Paperclip style={{ width: 16, height: 16 }} />
+        </button>
+
+        {/* Quick Camera Action */}
+        <button
+          type="button"
+          className="chat-composer-action-btn"
+          onClick={() => setCameraModalMode('photo')}
+          disabled={isClosed || isSending}
+          title="Take photo"
+          aria-label="Camera"
+        >
+          <Camera style={{ width: 16, height: 16 }} />
+        </button>
+
+        {/* Quick Emoji Picker */}
+        <div className="chat-emoji-container" ref={emojiMenuRef}>
           <button
             type="button"
-            className={`chat-attachment-btn ${showAttachmentMenu ? 'active' : ''}`}
-            onClick={() => setShowAttachmentMenu((prev) => !prev)}
+            className={`chat-composer-action-btn ${showEmojiPicker ? 'active' : ''}`}
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
             disabled={isClosed || isSending}
-            title="Attach file or media (+)"
-            aria-label="Add attachment"
-            aria-expanded={showAttachmentMenu}
+            title="Add emoji"
+            aria-label="Add emoji"
           >
-            <Plus style={{ width: 18, height: 18 }} />
+            <Smile style={{ width: 16, height: 16 }} />
           </button>
-
-          {showAttachmentMenu && (
-            <div className="attachment-dropdown-menu" role="menu">
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => handleSelectFile('all')}
-              >
-                <Paperclip style={{ width: 15, height: 15, color: '#38bdf8' }} />
-                <span>Choose File</span>
-              </button>
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => handleSelectFile('media')}
-              >
-                <ImageIcon style={{ width: 15, height: 15, color: '#4ade80' }} />
-                <span>Choose Photos/Videos</span>
-              </button>
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setShowAttachmentMenu(false);
-                  setCameraModalMode('photo');
-                }}
-              >
-                <Camera style={{ width: 15, height: 15, color: '#facc15' }} />
-                <span>Take Photo</span>
-              </button>
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setShowAttachmentMenu(false);
-                  setCameraModalMode('video');
-                }}
-              >
-                <Video style={{ width: 15, height: 15, color: '#f43f5e' }} />
-                <span>Record Video</span>
-              </button>
-              <div className="attachment-menu-divider" />
-              <button
-                type="button"
-                className="attachment-menu-item cancel-item"
-                role="menuitem"
-                onClick={() => setShowAttachmentMenu(false)}
-              >
-                <X style={{ width: 15, height: 15 }} />
-                <span>Cancel</span>
-              </button>
+          {showEmojiPicker && (
+            <div className="emoji-popover-menu" role="menu">
+              {['✨', '👋', '😊', '🌸', '☕', '🐱', '🐰', '🎉', '💜', '🌿', '👍', '🤍'].map((em) => (
+                <button
+                  key={em}
+                  type="button"
+                  className="emoji-select-btn"
+                  onClick={() => {
+                    setInputText((prev) => prev + em);
+                    setShowEmojiPicker(false);
+                  }}
+                >
+                  {em}
+                </button>
+              ))}
             </div>
           )}
         </div>
 
         <input
+          ref={inputRef}
           type="text"
           className="room-input-field"
           placeholder={
             isClosed
               ? 'Room is closed. Sending is disabled.'
               : room.status === 'invited'
-              ? 'Type a message to accept invitation and reply...'
-              : `Message as "${room.myNickname}"...`
+                ? 'Type a message to accept invitation and reply...'
+                : `Message as "${room.myNickname}"...`
           }
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
-          disabled={isClosed || isSending}
+          disabled={isClosed}
           maxLength={5000}
         />
         <button
           type="submit"
           className="room-send-btn"
+          onMouseDown={(e) => e.preventDefault()}
           disabled={isClosed || isSending || !inputText.trim()}
           title="Send message"
         >
@@ -671,19 +627,25 @@ export default function RoomChatPane({
       )}
 
       {/* Modals */}
-      {previewFile && (
-        <FilePreviewModal
-          file={previewFile}
-          onConfirmSend={handleConfirmSendFile}
-          onClose={() => setPreviewFile(null)}
+      {cameraModalMode && (
+        <CameraCaptureModal
+          initialMode={cameraModalMode}
+          onSendMedia={handleConfirmSendCamera}
+          onClose={() => setCameraModalMode(null)}
         />
       )}
 
-      {cameraModalMode && (
-        <CameraCaptureModal
-          mode={cameraModalMode}
-          onSendMedia={handleConfirmSendCamera}
-          onClose={() => setCameraModalMode(null)}
+      {viewingMedia && (
+        <MediaViewerModal
+          media={viewingMedia}
+          onClose={() => setViewingMedia(null)}
+          onShowInFinder={handleShowInFolder}
+          onDownload={() => {
+            if (viewingMedia.transferId) {
+              const msg = messages.find((m) => m.attachment?.transferId === viewingMedia.transferId);
+              if (msg) handleDownloadAttachment(msg);
+            }
+          }}
         />
       )}
     </div>

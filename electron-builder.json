@@ -14,11 +14,15 @@
     "target": ["dmg", "zip"],
     "hardenedRuntime": true,
     "gatekeeperAssess": false,
+    "entitlements": "electron/entitlements.mac.plist",
+    "entitlementsInherit": "electron/entitlements.mac.inherit.plist",
     "extendInfo": {
       "NSLocalNetworkUsageDescription": "Subnet uses your local network to discover and connect with nearby devices without internet access.",
       "NSBonjourServices": [
         "_subnet._tcp"
-      ]
+      ],
+      "NSCameraUsageDescription": "Subnet requires camera access to capture photos and record video messages to share with peers on your local network.",
+      "NSMicrophoneUsageDescription": "Subnet requires microphone access to record audio in video messages to share with peers on your local network."
     }
   }
 }

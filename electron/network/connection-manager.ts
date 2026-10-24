@@ -207,10 +207,10 @@ export class ConnectionManager extends EventEmitter {
   private handleInboundSocket(socket: WebSocket): void {
     console.log(`[Subnet:Connection] Incoming connection received on local port ${this.port}`);
     const settings = this.chatStore.getSettings();
-    const localAvatar: ProfileAvatarMetadata = {
-      avatarType: settings.avatarType,
-      avatarValue: settings.avatarValue,
-    };
+    const localAvatar: ProfileAvatarMetadata | undefined =
+      settings.shareAvatarWithPeers !== false && settings.avatarType !== 'default'
+        ? { avatarType: settings.avatarType, avatarValue: settings.avatarValue }
+        : undefined;
     const conn = new PeerConnection(socket, 'inbound', this.localProfile, localAvatar);
 
     conn.on('connected', (remotePeer) => {
@@ -292,6 +292,7 @@ export class ConnectionManager extends EventEmitter {
           this.activeConnections.delete(closedPeerId);
           this.emit('peer-disconnected', closedPeerId);
           this.checkHostOfflineForRooms(closedPeerId);
+          this.transferManager.cancelTransfersForPeer(closedPeerId, 'Peer disconnected from network');
         }
       }
     });
@@ -347,10 +348,10 @@ export class ConnectionManager extends EventEmitter {
       });
 
       const settings = this.chatStore.getSettings();
-      const localAvatar: ProfileAvatarMetadata = {
-        avatarType: settings.avatarType,
-        avatarValue: settings.avatarValue,
-      };
+      const localAvatar: ProfileAvatarMetadata | undefined =
+        settings.shareAvatarWithPeers !== false && settings.avatarType !== 'default'
+          ? { avatarType: settings.avatarType, avatarValue: settings.avatarValue }
+          : undefined;
       const conn = new PeerConnection(socket, 'outbound', this.localProfile, localAvatar);
       this.pendingOutbound.set(peerId, conn);
 
@@ -737,7 +738,10 @@ export class ConnectionManager extends EventEmitter {
       validCap = Math.max(2, capacity);
     }
 
-    const chosenNick = validateNickname(nickname) || `Anon-${crypto.randomBytes(2).toString('hex')}`;
+    const chosenNick = validateNickname(nickname);
+    if (!chosenNick) {
+      throw new Error('A valid nickname (2-30 characters) is required to create an anonymous room');
+    }
     const roomId = crypto.randomUUID();
     const roomName = name.trim().slice(0, 80);
 
@@ -831,7 +835,7 @@ export class ConnectionManager extends EventEmitter {
     const isPrivate = room.type === 'private';
     const localSettings = this.chatStore.getSettings();
     const senderAvatar: ProfileAvatarMetadata | undefined =
-      isPrivate && localSettings.avatarType !== 'default'
+      isPrivate && localSettings.shareAvatarWithPeers !== false && localSettings.avatarType !== 'default'
         ? { avatarType: localSettings.avatarType, avatarValue: localSettings.avatarValue }
         : undefined;
 
@@ -1894,11 +1898,12 @@ export class ConnectionManager extends EventEmitter {
 
   public updateSettings(partial: Partial<UserSettings>): UserSettings {
     const updated = this.chatStore.updateSettings(partial);
-    if (partial.avatarType !== undefined || partial.avatarValue !== undefined) {
-      this.broadcastProfileUpdate({
-        avatarType: updated.avatarType,
-        avatarValue: updated.avatarValue,
-      });
+    if (partial.avatarType !== undefined || partial.avatarValue !== undefined || partial.shareAvatarWithPeers !== undefined) {
+      const avatarToBroadcast: ProfileAvatarMetadata =
+        updated.shareAvatarWithPeers !== false && updated.avatarType !== 'default'
+          ? { avatarType: updated.avatarType, avatarValue: updated.avatarValue }
+          : { avatarType: 'default', avatarValue: '' };
+      this.broadcastProfileUpdate(avatarToBroadcast);
     }
     return updated;
   }
@@ -2055,9 +2060,19 @@ export class ConnectionManager extends EventEmitter {
     }
 
     try {
-      await this.transferManager.streamFileChunks(envelope.transferId, (chunk) => {
-        return conn.sendEnvelope(chunk);
-      });
+      await this.transferManager.streamFileChunks(
+        envelope.transferId,
+        async (chunk) => {
+          if (conn.isBackpressured()) {
+            const drained = await conn.waitForDrain(15000);
+            if (!drained) {
+              return false;
+            }
+          }
+          return conn.sendEnvelope(chunk);
+        },
+        () => conn.state === 'connected'
+      );
     } catch (err: any) {
       console.error(`[Subnet:Transfer] Error streaming file ${envelope.transferId}:`, err);
       conn.sendEnvelope({

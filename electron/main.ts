@@ -1,9 +1,37 @@
-import { app, BrowserWindow, ipcMain, dialog, nativeImage, shell } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  nativeImage,
+  shell,
+  session,
+  systemPreferences,
+  protocol,
+  net,
+} from 'electron';
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
+import url from 'url';
 import { ConnectionManager } from './network/connection-manager';
+import { getSystemAccountPicture } from './utils/system-avatar';
+
+// Register standard custom media scheme before app is ready
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'subnet-media',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      stream: true,
+      bypassCSP: true,
+      corsEnabled: true,
+    },
+  },
+]);
 import type {
   LocalProfile,
   NetworkStatus,
@@ -28,6 +56,22 @@ const localProfile: LocalProfile = {
 };
 
 function createWindow(): void {
+  // Configure Electron session permission handlers for camera and microphone
+  session.defaultSession.setPermissionRequestHandler((_webContents, permission, callback) => {
+    if (permission === 'media') {
+      callback(true);
+    } else {
+      callback(false);
+    }
+  });
+
+  session.defaultSession.setPermissionCheckHandler((_webContents, permission) => {
+    if (permission === 'media') {
+      return true;
+    }
+    return false;
+  });
+
   mainWindow = new BrowserWindow({
     width: 960,
     height: 680,
@@ -171,13 +215,46 @@ function setupNetworking(): void {
   });
 
   // Start the networking core
-  connectionManager.start().catch((err) => {
+  connectionManager.start().then(() => {
+    ensureDefaultDeviceAvatar().catch((err) => {
+      console.log('[Subnet:Avatar] Could not initialize device profile picture:', err.message);
+    });
+  }).catch((err) => {
     console.error('Failed to start Subnet networking core:', err);
   });
 }
 
+async function ensureDefaultDeviceAvatar(): Promise<void> {
+  if (!connectionManager) return;
+  const settings = connectionManager.getSettings();
+  if (settings.avatarType === 'default' && !settings.avatarValue) {
+    try {
+      const res = await getSystemAccountPicture();
+      if (res.success && res.dataUrl) {
+        connectionManager.updateSettings({
+          avatarType: 'custom',
+          avatarValue: res.dataUrl,
+        });
+        console.log('[Subnet:Avatar] Defaulted to device profile picture');
+      }
+    } catch (err: any) {
+      console.log('[Subnet:Avatar] Device profile picture not available:', err.message);
+    }
+  }
+}
+
 // IPC Handlers with defensive parameter validation
 ipcMain.handle('subnet:get-profile', async (): Promise<LocalProfile> => {
+  if (connectionManager) {
+    const settings = connectionManager.getSettings();
+    return {
+      ...localProfile,
+      avatar:
+        settings.shareAvatarWithPeers !== false && settings.avatarType !== 'default'
+          ? { avatarType: settings.avatarType, avatarValue: settings.avatarValue }
+          : undefined,
+    };
+  }
   return localProfile;
 });
 
@@ -218,7 +295,19 @@ ipcMain.handle('subnet:get-conversation-messages', async (_event, peerId: unknow
 
 ipcMain.handle('subnet:get-settings', async (): Promise<UserSettings> => {
   if (connectionManager) {
-    return connectionManager.getSettings();
+    const settings = connectionManager.getSettings();
+    if (settings.avatarType === 'default' && !settings.avatarValue) {
+      try {
+        const res = await getSystemAccountPicture();
+        if (res.success && res.dataUrl) {
+          return connectionManager.updateSettings({
+            avatarType: 'custom',
+            avatarValue: res.dataUrl,
+          });
+        }
+      } catch { }
+    }
+    return settings;
   }
   return {
     avatarType: 'default',
@@ -227,6 +316,7 @@ ipcMain.handle('subnet:get-settings', async (): Promise<UserSettings> => {
     theme: 'system',
     notificationsEnabled: true,
     soundEnabled: true,
+    shareAvatarWithPeers: true,
   };
 });
 
@@ -257,6 +347,9 @@ ipcMain.handle(
     if (typeof p.soundEnabled === 'boolean') {
       cleanPartial.soundEnabled = p.soundEnabled;
     }
+    if (typeof p.shareAvatarWithPeers === 'boolean') {
+      cleanPartial.shareAvatarWithPeers = p.shareAvatarWithPeers;
+    }
 
     if (connectionManager) {
       const updated = connectionManager.updateSettings(cleanPartial);
@@ -266,6 +359,13 @@ ipcMain.handle(
       return updated;
     }
     throw new Error('ConnectionManager not available');
+  }
+);
+
+ipcMain.handle(
+  'subnet:get-system-avatar',
+  async (): Promise<{ success: boolean; dataUrl?: string; error?: string }> => {
+    return await getSystemAccountPicture();
   }
 );
 
@@ -549,6 +649,13 @@ ipcMain.handle(
   'subnet:select-attachment-file',
   async (_event, mode: 'all' | 'media'): Promise<{
     success: boolean;
+    files?: Array<{
+      filePath: string;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      thumbnail?: string;
+    }>;
     file?: {
       filePath: string;
       fileName: string;
@@ -566,18 +673,18 @@ ipcMain.handle(
       const filters =
         mode === 'media'
           ? [
-              {
-                name: 'Photos & Videos',
-                extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'webm', 'mkv'],
-              },
-              { name: 'All Files', extensions: ['*'] },
-            ]
+            {
+              name: 'Photos & Videos',
+              extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'webm', 'mkv'],
+            },
+            { name: 'All Files', extensions: ['*'] },
+          ]
           : [{ name: 'All Files', extensions: ['*'] }];
 
       const result = await dialog.showOpenDialog(mainWindow, {
-        title: mode === 'media' ? 'Select Photo or Video' : 'Select File to Send',
+        title: mode === 'media' ? 'Select Photo or Video' : 'Select Files to Send',
         buttonLabel: 'Choose',
-        properties: ['openFile'],
+        properties: ['openFile', 'multiSelections'],
         filters,
       });
 
@@ -585,46 +692,108 @@ ipcMain.handle(
         return { success: false, error: 'Selection cancelled' };
       }
 
-      const filePath = result.filePaths[0];
-      const stats = await fs.promises.stat(filePath);
-      if (!stats.isFile()) {
-        return { success: false, error: 'Selected item is not a regular file' };
-      }
+      const selectedFiles: Array<{
+        filePath: string;
+        fileName: string;
+        fileSize: number;
+        mimeType: string;
+        thumbnail?: string;
+      }> = [];
 
-      const fileName = path.basename(filePath);
-      let mimeType = 'application/octet-stream';
-      const ext = path.extname(filePath).toLowerCase();
-      if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
-      else if (ext === '.png') mimeType = 'image/png';
-      else if (ext === '.gif') mimeType = 'image/gif';
-      else if (ext === '.webp') mimeType = 'image/webp';
-      else if (ext === '.mp4') mimeType = 'video/mp4';
-      else if (ext === '.mov') mimeType = 'video/quicktime';
-      else if (ext === '.webm') mimeType = 'video/webm';
-      else if (ext === '.pdf') mimeType = 'application/pdf';
+      for (const filePath of result.filePaths) {
+        const stats = await fs.promises.stat(filePath);
+        if (!stats.isFile()) continue;
 
-      let thumbnail: string | undefined;
-      if (mimeType.startsWith('image/')) {
-        const img = nativeImage.createFromPath(filePath);
-        if (!img.isEmpty()) {
-          const resized = img.resize({ width: 120, height: 120, quality: 'better' });
-          thumbnail = `data:image/jpeg;base64,${resized.toJPEG(75).toString('base64')}`;
+        const fileName = path.basename(filePath);
+        let mimeType = 'application/octet-stream';
+        const ext = path.extname(filePath).toLowerCase();
+        if (ext === '.jpg' || ext === '.jpeg') mimeType = 'image/jpeg';
+        else if (ext === '.png') mimeType = 'image/png';
+        else if (ext === '.gif') mimeType = 'image/gif';
+        else if (ext === '.webp') mimeType = 'image/webp';
+        else if (ext === '.mp4') mimeType = 'video/mp4';
+        else if (ext === '.mov') mimeType = 'video/quicktime';
+        else if (ext === '.webm') mimeType = 'video/webm';
+        else if (ext === '.pdf') mimeType = 'application/pdf';
+        else if (ext === '.zip') mimeType = 'application/zip';
+        else if (ext === '.tar' || ext === '.gz') mimeType = 'application/gzip';
+        else if (ext === '.txt' || ext === '.md') mimeType = 'text/plain';
+
+        let thumbnail: string | undefined;
+        if (mimeType.startsWith('image/')) {
+          try {
+            const img = nativeImage.createFromPath(filePath);
+            if (!img.isEmpty()) {
+              const resized = img.resize({ width: 120, height: 120, quality: 'better' });
+              thumbnail = `data:image/jpeg;base64,${resized.toJPEG(75).toString('base64')}`;
+            }
+          } catch { }
         }
-      }
 
-      return {
-        success: true,
-        file: {
+        selectedFiles.push({
           filePath,
           fileName,
           fileSize: stats.size,
           mimeType,
           thumbnail,
-        },
+        });
+      }
+
+      if (selectedFiles.length === 0) {
+        return { success: false, error: 'No valid files selected' };
+      }
+
+      return {
+        success: true,
+        files: selectedFiles,
+        file: selectedFiles[0],
       };
     } catch (err: any) {
       return { success: false, error: err.message || 'Failed to select file' };
     }
+  }
+);
+
+ipcMain.handle(
+  'subnet:check-media-permissions',
+  async (_event, mediaType: 'camera' | 'microphone') => {
+    if (process.platform === 'darwin') {
+      try {
+        const status = systemPreferences.getMediaAccessStatus(mediaType);
+        return { success: true, status };
+      } catch (err: any) {
+        return { success: false, status: 'unknown', error: err.message };
+      }
+    }
+    return { success: true, status: 'granted' };
+  }
+);
+
+ipcMain.handle(
+  'subnet:request-media-permissions',
+  async (_event, mediaTypes: Array<'camera' | 'microphone'>) => {
+    if (process.platform === 'darwin') {
+      const results: Record<string, boolean> = {};
+      try {
+        for (const type of mediaTypes) {
+          const current = systemPreferences.getMediaAccessStatus(type);
+          if (current === 'granted') {
+            results[type] = true;
+          } else if (current === 'denied' || current === 'restricted') {
+            results[type] = false;
+          } else {
+            // 'not-determined' triggers native macOS TCC prompt and System Settings registration
+            const granted = await systemPreferences.askForMediaAccess(type);
+            results[type] = granted;
+          }
+        }
+        const allGranted = Object.values(results).every(Boolean);
+        return { success: allGranted, results };
+      } catch (err: any) {
+        return { success: false, results, error: err.message };
+      }
+    }
+    return { success: true, results: { camera: true, microphone: true } };
   }
 );
 
@@ -768,7 +937,70 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle(
+  'subnet:save-file-as',
+  async (
+    _event,
+    payload: unknown
+  ): Promise<{ success: boolean; canceled?: boolean; savedPath?: string; error?: string }> => {
+    if (!payload || typeof payload !== 'object' || !mainWindow) {
+      return { success: false, error: 'Malformed save request' };
+    }
+    const { sourcePath, defaultName } = payload as Record<string, unknown>;
+    if (typeof sourcePath !== 'string' || !sourcePath.trim()) {
+      return { success: false, error: 'Invalid source path' };
+    }
+
+    try {
+      const cleanPath = sourcePath.trim();
+      if (!fs.existsSync(cleanPath)) {
+        return { success: false, error: 'Source file does not exist on disk' };
+      }
+
+      const defaultFilename =
+        typeof defaultName === 'string' && defaultName.trim()
+          ? defaultName.trim()
+          : path.basename(cleanPath);
+
+      const saveResult = await dialog.showSaveDialog(mainWindow, {
+        title: 'Save Attachment',
+        defaultPath: path.join(app.getPath('downloads'), defaultFilename),
+      });
+
+      if (saveResult.canceled || !saveResult.filePath) {
+        return { success: false, canceled: true };
+      }
+
+      await fs.promises.copyFile(cleanPath, saveResult.filePath);
+      return { success: true, savedPath: saveResult.filePath };
+    } catch (err: any) {
+      return { success: false, error: err.message || 'Failed to save file' };
+    }
+  }
+);
+
 app.whenReady().then(() => {
+  // Protocol handler for serving local media files safely without CSP blocking or high memory
+  protocol.handle('subnet-media', (request) => {
+    try {
+      const parsed = new URL(request.url);
+      let filePath = decodeURIComponent(parsed.pathname);
+      if (parsed.hostname && parsed.hostname !== 'localhost') {
+        filePath = decodeURIComponent('/' + parsed.hostname + parsed.pathname);
+      }
+      if (process.platform === 'win32' && filePath.startsWith('/')) {
+        filePath = filePath.slice(1);
+      }
+      if (!fs.existsSync(filePath)) {
+        return new Response('File not found', { status: 404 });
+      }
+      const fileUrl = url.pathToFileURL(filePath).toString();
+      return net.fetch(fileUrl);
+    } catch (err: any) {
+      return new Response(err.message || 'Error loading media', { status: 500 });
+    }
+  });
+
   createWindow();
   setupNetworking();
 

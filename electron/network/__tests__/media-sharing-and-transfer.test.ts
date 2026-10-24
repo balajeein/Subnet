@@ -49,9 +49,10 @@ test('Media Sharing & Transfer Test Suite', async (suite) => {
     assert.equal(validateFileAttachmentMetadata({ ...validMeta, transferId: '' }), undefined);
     assert.equal(validateFileAttachmentMetadata({ ...validMeta, fileName: '   ' }), undefined);
 
-    // Rejects invalid file size
+    // Supports large files up to 100GB, rejects > 100GB and negative
     assert.equal(validateFileAttachmentMetadata({ ...validMeta, fileSize: -5 }), undefined);
-    assert.equal(validateFileAttachmentMetadata({ ...validMeta, fileSize: 10 * 1024 * 1024 * 1024 }), undefined); // > 5GB
+    assert.ok(validateFileAttachmentMetadata({ ...validMeta, fileSize: 10 * 1024 * 1024 * 1024 })); // 10GB is valid
+    assert.equal(validateFileAttachmentMetadata({ ...validMeta, fileSize: 101 * 1024 * 1024 * 1024 }), undefined); // > 100GB rejected
 
     // Rejects missing sha256
     assert.equal(validateFileAttachmentMetadata({ ...validMeta, sha256: 'invalid-hash' }), undefined);

@@ -1,8 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Camera, Video, Square, RefreshCw, Send, X, AlertTriangle } from 'lucide-react';
+import {
+  Camera,
+  Video,
+  Square,
+  RefreshCw,
+  Send,
+  X,
+  AlertTriangle,
+} from 'lucide-react';
 
 interface CameraCaptureModalProps {
-  mode: 'photo' | 'video';
+  initialMode?: 'photo' | 'video';
+  mode?: 'photo' | 'video';
   onClose: () => void;
   onSendMedia: (media: {
     fileName: string;
@@ -12,12 +21,19 @@ interface CameraCaptureModalProps {
 }
 
 export default function CameraCaptureModal({
-  mode,
+  initialMode,
+  mode: propMode,
   onClose,
   onSendMedia,
 }: CameraCaptureModalProps): React.JSX.Element {
+  // Mode state: allows user to freely toggle between Photo and Video inside the camera modal
+  const [currentMode, setCurrentMode] = useState<'photo' | 'video'>(
+    initialMode || propMode || 'photo'
+  );
+
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [permissionError, setPermissionError] = useState<string | null>(null);
+  const [isInitializing, setIsInitializing] = useState<boolean>(true);
 
   // Photo capture state
   const [capturedPhotoUrl, setCapturedPhotoUrl] = useState<string | null>(null);
@@ -29,13 +45,38 @@ export default function CameraCaptureModal({
   const [recordedVideoUrl, setRecordedVideoUrl] = useState<string | null>(null);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
 
+  const [isSendingMedia, setIsSendingMedia] = useState(false);
+
   const videoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Stop all camera & mic tracks safely
+  // Helper to convert Blob to Base64 in renderer without needing Node Buffer
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const dataUrl = reader.result as string;
+        const commaIdx = dataUrl.indexOf(',');
+        if (commaIdx >= 0) {
+          resolve(dataUrl.slice(commaIdx + 1));
+        } else {
+          resolve(dataUrl);
+        }
+      };
+      reader.onerror = () => reject(new Error('Failed to read media blob'));
+      reader.readAsDataURL(blob);
+    });
+  };
+
+  // Safely stop all camera & microphone tracks
   const stopTracks = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+    }
     if (stream) {
       stream.getTracks().forEach((track) => {
         try {
@@ -44,28 +85,77 @@ export default function CameraCaptureModal({
       });
       setStream(null);
     }
+    if (videoRef.current && videoRef.current.srcObject) {
+      const activeStream = videoRef.current.srcObject as MediaStream;
+      activeStream.getTracks().forEach((track) => {
+        try {
+          track.stop();
+        } catch {}
+      });
+      videoRef.current.srcObject = null;
+    }
     if (timerRef.current) {
       clearInterval(timerRef.current);
       timerRef.current = null;
     }
   };
 
-  // 1. Initialize camera stream
+  // 1. Initialize camera & microphone stream based on currentMode
   useEffect(() => {
     let isCancelled = false;
 
     async function initCamera() {
-      try {
-        const constraints: MediaStreamConstraints = {
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user',
-          },
-          audio: mode === 'video',
-        };
+      setIsInitializing(true);
+      setPermissionError(null);
 
-        const mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+      // Check / request native macOS permissions via Electron IPC first
+      if (window.subnet?.requestMediaPermissions) {
+        try {
+          const toRequest: Array<'camera' | 'microphone'> =
+            currentMode === 'video' ? ['camera', 'microphone'] : ['camera'];
+          const permRes = await window.subnet.requestMediaPermissions(toRequest);
+          if (permRes && permRes.results && permRes.results.camera === false) {
+            if (!isCancelled) {
+              setPermissionError(
+                'Camera permission is required. Please grant access in macOS System Settings > Privacy & Security > Camera.'
+              );
+              setIsInitializing(false);
+            }
+            return;
+          }
+        } catch (err) {
+          console.warn('[Subnet:Camera] Native media permission request error:', err);
+        }
+      }
+
+      try {
+        let mediaStream: MediaStream;
+        try {
+          mediaStream = await navigator.mediaDevices.getUserMedia({
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: 'user',
+            },
+            audio: currentMode === 'video',
+          });
+        } catch (mediaErr: any) {
+          // If video mode failed because of microphone (denied or no mic), retry video-only
+          if (currentMode === 'video') {
+            console.warn('[Subnet:Camera] Microphone capture failed, falling back to video-only stream:', mediaErr);
+            mediaStream = await navigator.mediaDevices.getUserMedia({
+              video: {
+                width: { ideal: 1280 },
+                height: { ideal: 720 },
+                facingMode: 'user',
+              },
+              audio: false,
+            });
+          } else {
+            throw mediaErr;
+          }
+        }
+
         if (isCancelled) {
           mediaStream.getTracks().forEach((t) => t.stop());
           return;
@@ -74,12 +164,20 @@ export default function CameraCaptureModal({
         setStream(mediaStream);
         if (videoRef.current) {
           videoRef.current.srcObject = mediaStream;
+          // Explicitly play to prevent black paused frames
+          videoRef.current.play().catch((playErr) => {
+            console.warn('[Subnet:Camera] Video play error:', playErr);
+          });
         }
+        setIsInitializing(false);
       } catch (err: any) {
         if (!isCancelled) {
           console.error('[Subnet:Camera] Camera access error:', err);
+          setIsInitializing(false);
           if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-            setPermissionError('Camera permission was denied. Please allow camera access in macOS System Settings.');
+            setPermissionError(
+              'Camera access was denied. Please allow camera access in macOS System Settings > Privacy & Security > Camera.'
+            );
           } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
             setPermissionError('No camera found on this device.');
           } else {
@@ -95,7 +193,7 @@ export default function CameraCaptureModal({
       isCancelled = true;
       stopTracks();
     };
-  }, [mode]);
+  }, [currentMode]);
 
   // Handle escape key to close
   useEffect(() => {
@@ -110,9 +208,24 @@ export default function CameraCaptureModal({
 
   const handleClose = () => {
     stopTracks();
-    if (capturedPhotoUrl) URL.revokeObjectURL(capturedPhotoUrl);
     if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
     onClose();
+  };
+
+  // Switch between Photo and Video modes
+  const handleSwitchMode = (newMode: 'photo' | 'video') => {
+    if (newMode === currentMode || isRecording || isSendingMedia) return;
+    // Clear any active previews when switching modes
+    if (capturedPhotoUrl) {
+      setCapturedPhotoUrl(null);
+      setCapturedBlob(null);
+    }
+    if (recordedVideoUrl) {
+      URL.revokeObjectURL(recordedVideoUrl);
+      setRecordedVideoUrl(null);
+      setRecordedBlob(null);
+    }
+    setCurrentMode(newMode);
   };
 
   // --- Photo capture ---
@@ -120,31 +233,62 @@ export default function CameraCaptureModal({
     if (!videoRef.current) return;
     const video = videoRef.current;
 
+    // Guard against unrendered/black video frames:
+    // Ensure video is playing and readyState has sufficient data
+    if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+      setPermissionError('Camera is still initializing. Please wait a moment and try again.');
+      return;
+    }
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
 
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) {
+      setPermissionError('Failed to capture frame from camera.');
+      return;
+    }
 
+    // Render exact current video frame onto canvas
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (blob) {
-          const url = URL.createObjectURL(blob);
-          setCapturedPhotoUrl(url);
-          setCapturedBlob(blob);
-        }
-      },
-      'image/jpeg',
-      0.85
-    );
+
+    let dataUrl: string;
+    try {
+      dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+    } catch (err: any) {
+      setPermissionError('Failed to encode captured image.');
+      return;
+    }
+
+    // Validate that dataUrl contains actual image data and not an empty/black frame
+    if (!dataUrl || dataUrl.length < 200) {
+      setPermissionError('Captured frame was empty. Please check your camera.');
+      return;
+    }
+
+    // Create a Blob from the verified dataUrl
+    try {
+      const byteString = atob(dataUrl.split(',')[1]);
+      const mimeString = dataUrl.split(',')[0].split(':')[1].split(';')[0];
+      const ab = new ArrayBuffer(byteString.length);
+      const ia = new Uint8Array(ab);
+      for (let i = 0; i < byteString.length; i++) {
+        ia[i] = byteString.charCodeAt(i);
+      }
+      const blob = new Blob([ab], { type: mimeString });
+
+      // Using dataUrl directly for preview guarantees it renders the captured frame
+      // without risk of premature object URL revocation or blank canvas artifacts
+      setCapturedPhotoUrl(dataUrl);
+      setCapturedBlob(blob);
+    } catch (err: any) {
+      console.error('[Subnet:Camera] Error creating Blob from photo:', err);
+      setPermissionError('Failed to process captured photo.');
+    }
   };
 
   const handleRetakePhoto = () => {
-    if (capturedPhotoUrl) {
-      URL.revokeObjectURL(capturedPhotoUrl);
-    }
     setCapturedPhotoUrl(null);
     setCapturedBlob(null);
   };
@@ -154,11 +298,14 @@ export default function CameraCaptureModal({
     if (!stream) return;
     recordedChunksRef.current = [];
 
-    const options: MediaRecorderOptions = {
-      mimeType: MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')
-        ? 'video/webm;codecs=vp8,opus'
-        : 'video/webm',
-    };
+    const options: MediaRecorderOptions = {};
+    if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus')) {
+      options.mimeType = 'video/webm;codecs=vp8,opus';
+    } else if (MediaRecorder.isTypeSupported('video/webm')) {
+      options.mimeType = 'video/webm';
+    } else if (MediaRecorder.isTypeSupported('video/mp4')) {
+      options.mimeType = 'video/mp4';
+    }
 
     try {
       const recorder = new MediaRecorder(stream, options);
@@ -169,7 +316,8 @@ export default function CameraCaptureModal({
       };
 
       recorder.onstop = () => {
-        const blob = new Blob(recordedChunksRef.current, { type: 'video/webm' });
+        const mimeType = recorder.mimeType || options.mimeType || 'video/webm';
+        const blob = new Blob(recordedChunksRef.current, { type: mimeType });
         const url = URL.createObjectURL(blob);
         setRecordedVideoUrl(url);
         setRecordedBlob(blob);
@@ -185,6 +333,7 @@ export default function CameraCaptureModal({
       }, 1000);
     } catch (err) {
       console.error('[Subnet:Camera] Failed to start MediaRecorder:', err);
+      setPermissionError('Failed to start video recording. Your browser might not support this video codec.');
     }
   };
 
@@ -210,21 +359,26 @@ export default function CameraCaptureModal({
 
   // --- Send confirmed media ---
   const handleConfirmSend = async () => {
-    const blob = mode === 'photo' ? capturedBlob : recordedBlob;
-    if (!blob) return;
+    const blob = currentMode === 'photo' ? capturedBlob : recordedBlob;
+    if (!blob || isSendingMedia) return;
 
-    const arrayBuffer = await blob.arrayBuffer();
-    const base64Data = Buffer.from(arrayBuffer).toString('base64');
+    setIsSendingMedia(true);
+    try {
+      const base64Data = await blobToBase64(blob);
+      const timestamp = Date.now();
+      const isVideo = currentMode === 'video';
+      const mimeType = isVideo ? (blob.type || 'video/webm') : 'image/jpeg';
+      const ext = isVideo ? (mimeType.includes('mp4') ? 'mp4' : 'webm') : 'jpg';
+      const fileName = `${currentMode}_${timestamp}.${ext}`;
 
-    const timestamp = Date.now();
-    const fileName =
-      mode === 'photo'
-        ? `photo_${timestamp}.jpg`
-        : `video_${timestamp}.webm`;
-    const mimeType = mode === 'photo' ? 'image/jpeg' : 'video/webm';
-
-    stopTracks();
-    onSendMedia({ fileName, mimeType, base64Data });
+      stopTracks();
+      if (recordedVideoUrl) URL.revokeObjectURL(recordedVideoUrl);
+      onSendMedia({ fileName, mimeType, base64Data });
+    } catch (err: any) {
+      console.error('[Subnet:Camera] Failed to process media for sending:', err);
+    } finally {
+      setIsSendingMedia(false);
+    }
   };
 
   const formatDuration = (sec: number): string => {
@@ -236,21 +390,34 @@ export default function CameraCaptureModal({
   return (
     <div className="camera-modal-backdrop" onClick={handleClose}>
       <div className="camera-modal-card" onClick={(e) => e.stopPropagation()}>
-        {/* Modal Header */}
+        {/* Modal Header with Photo / Video Mode Switcher */}
         <div className="camera-modal-header">
-          <div className="camera-modal-title">
-            {mode === 'photo' ? (
-              <>
-                <Camera style={{ width: 17, height: 17, color: '#38bdf8' }} />
-                <span>Take Photo</span>
-              </>
-            ) : (
-              <>
-                <Video style={{ width: 17, height: 17, color: '#f43f5e' }} />
-                <span>Record Video</span>
-              </>
-            )}
+          {/* Mode Tabs */}
+          <div className="camera-mode-switcher" role="tablist">
+            <button
+              type="button"
+              className={`camera-mode-tab ${currentMode === 'photo' ? 'active' : ''}`}
+              onClick={() => handleSwitchMode('photo')}
+              disabled={isRecording || isSendingMedia}
+              role="tab"
+              aria-selected={currentMode === 'photo'}
+            >
+              <Camera style={{ width: 14, height: 14 }} />
+              <span>Photo</span>
+            </button>
+            <button
+              type="button"
+              className={`camera-mode-tab ${currentMode === 'video' ? 'active' : ''}`}
+              onClick={() => handleSwitchMode('video')}
+              disabled={isRecording || isSendingMedia}
+              role="tab"
+              aria-selected={currentMode === 'video'}
+            >
+              <Video style={{ width: 14, height: 14 }} />
+              <span>Video</span>
+            </button>
           </div>
+
           <button
             type="button"
             className="camera-modal-close-btn"
@@ -268,16 +435,33 @@ export default function CameraCaptureModal({
               <AlertTriangle style={{ width: 36, height: 36, color: '#f59e0b' }} />
               <h3>Camera Unavailable</h3>
               <p>{permissionError}</p>
-              <button type="button" className="btn-secondary" onClick={handleClose}>
-                Close
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={() => {
+                  setPermissionError(null);
+                  setCurrentMode((m) => (m === 'photo' ? 'photo' : 'video'));
+                }}
+              >
+                Retry
               </button>
             </div>
-          ) : mode === 'photo' && capturedPhotoUrl ? (
-            /* Photo preview */
-            <img src={capturedPhotoUrl} alt="Captured preview" className="camera-captured-preview" />
-          ) : mode === 'video' && recordedVideoUrl ? (
+          ) : currentMode === 'photo' && capturedPhotoUrl ? (
+            /* Photo preview: guaranteed to show actual captured frame */
+            <img
+              src={capturedPhotoUrl}
+              alt="Captured preview"
+              className="camera-captured-preview"
+            />
+          ) : currentMode === 'video' && recordedVideoUrl ? (
             /* Video preview */
-            <video src={recordedVideoUrl} controls autoPlay className="camera-captured-preview" />
+            <video
+              src={recordedVideoUrl}
+              controls
+              autoPlay
+              playsInline
+              className="camera-captured-preview"
+            />
           ) : (
             /* Live camera stream */
             <div className="camera-live-wrap">
@@ -294,6 +478,11 @@ export default function CameraCaptureModal({
                   <span>REC {formatDuration(recordingSeconds)}</span>
                 </div>
               )}
+              {isInitializing && (
+                <div className="camera-loading-overlay">
+                  <span>Starting camera...</span>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -301,16 +490,26 @@ export default function CameraCaptureModal({
         {/* Actions bar */}
         {!permissionError && (
           <div className="camera-modal-actions">
-            {mode === 'photo' ? (
+            {currentMode === 'photo' ? (
               capturedPhotoUrl ? (
                 <>
-                  <button type="button" className="btn-secondary" onClick={handleRetakePhoto}>
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={handleRetakePhoto}
+                    disabled={isSendingMedia}
+                  >
                     <RefreshCw style={{ width: 14, height: 14 }} />
                     <span>Retake</span>
                   </button>
-                  <button type="button" className="btn-primary" onClick={handleConfirmSend}>
+                  <button
+                    type="button"
+                    className="btn-primary"
+                    onClick={handleConfirmSend}
+                    disabled={isSendingMedia}
+                  >
                     <Send style={{ width: 14, height: 14 }} />
-                    <span>Send Photo</span>
+                    <span>{isSendingMedia ? 'Sending...' : 'Send Photo'}</span>
                   </button>
                 </>
               ) : (
@@ -323,6 +522,8 @@ export default function CameraCaptureModal({
                     className="btn-camera-capture"
                     onClick={handleCapturePhoto}
                     title="Capture photo"
+                    aria-label="Capture photo"
+                    disabled={isInitializing}
                   >
                     <div className="capture-inner-circle" />
                   </button>
@@ -330,13 +531,23 @@ export default function CameraCaptureModal({
               )
             ) : recordedVideoUrl ? (
               <>
-                <button type="button" className="btn-secondary" onClick={handleRetakeVideo}>
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleRetakeVideo}
+                  disabled={isSendingMedia}
+                >
                   <RefreshCw style={{ width: 14, height: 14 }} />
                   <span>Retake</span>
                 </button>
-                <button type="button" className="btn-primary" onClick={handleConfirmSend}>
+                <button
+                  type="button"
+                  className="btn-primary"
+                  onClick={handleConfirmSend}
+                  disabled={isSendingMedia}
+                >
                   <Send style={{ width: 14, height: 14 }} />
-                  <span>Send Video</span>
+                  <span>{isSendingMedia ? 'Sending...' : 'Send Video'}</span>
                 </button>
               </>
             ) : isRecording ? (
@@ -359,6 +570,7 @@ export default function CameraCaptureModal({
                   className="btn-recording-start"
                   onClick={handleStartRecording}
                   title="Start recording"
+                  disabled={isInitializing}
                 >
                   <div className="recording-start-circle" />
                   <span>Record</span>

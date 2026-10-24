@@ -11,7 +11,7 @@ import {
 } from './protocol';
 
 export const CHUNK_SIZE = 32 * 1024; // 32 KB bounded chunks
-export const MAX_FILE_SIZE = 5 * 1024 * 1024 * 1024; // 5 GB safety limit
+export const MAX_FILE_SIZE = 100 * 1024 * 1024 * 1024; // 100 GB safety limit, bounded by disk space and capacity
 
 export interface OutboundTransfer {
   transferId: string;
@@ -22,6 +22,7 @@ export interface OutboundTransfer {
   isStreaming: boolean;
   isCancelled: boolean;
   transferredBytes: number;
+  lastProgressTime?: number;
 }
 
 export interface InboundTransfer {
@@ -37,6 +38,7 @@ export interface InboundTransfer {
   transferredBytes: number;
   isCancelled: boolean;
   isCompleted: boolean;
+  lastProgressTime?: number;
 }
 
 export interface TransferProgressEvent {
@@ -191,7 +193,8 @@ export class FileTransferManager extends EventEmitter {
    */
   public async streamFileChunks(
     transferId: string,
-    sendChunk: (chunk: FileChunkPayload) => boolean
+    sendChunk: (chunk: FileChunkPayload) => Promise<boolean> | boolean,
+    isConnectionAlive?: () => boolean
   ): Promise<void> {
     const transfer = this.outboundTransfers.get(transferId);
     if (!transfer) {
@@ -203,6 +206,7 @@ export class FileTransferManager extends EventEmitter {
 
     transfer.isStreaming = true;
     transfer.transferredBytes = 0;
+    transfer.lastProgressTime = 0;
 
     const stream = fs.createReadStream(transfer.filePath, { highWaterMark: CHUNK_SIZE });
     let chunkIndex = 0;
@@ -212,6 +216,11 @@ export class FileTransferManager extends EventEmitter {
         if (transfer.isCancelled) {
           stream.destroy();
           break;
+        }
+
+        if (isConnectionAlive && !isConnectionAlive()) {
+          stream.destroy();
+          throw new Error('Peer connection closed during chunk streaming');
         }
 
         const buf = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
@@ -232,7 +241,7 @@ export class FileTransferManager extends EventEmitter {
           throw new Error(`Invalid chunk payload generated at index ${chunkIndex}`);
         }
 
-        const sent = sendChunk(validatedChunk);
+        const sent = await sendChunk(validatedChunk);
         if (!sent) {
           stream.destroy();
           throw new Error('Socket closed or send buffer full during chunk transmission');
@@ -241,20 +250,25 @@ export class FileTransferManager extends EventEmitter {
         chunkIndex++;
         transfer.transferredBytes += buf.length;
 
+        const now = Date.now();
         const percent = Math.min(
           100,
           Math.round((transfer.transferredBytes / transfer.metadata.fileSize) * 100)
         );
 
-        this.emit('progress', {
-          transferId,
-          role: 'sender',
-          transferredBytes: transfer.transferredBytes,
-          totalBytes: transfer.metadata.fileSize,
-          percent,
-          status: percent >= 100 ? 'completed' : 'transferring',
-          localPath: transfer.filePath,
-        } as TransferProgressEvent);
+        // Throttle progress events to max once every 100ms or on completion to prevent IPC flooding
+        if (percent >= 100 || now - (transfer.lastProgressTime || 0) >= 100) {
+          transfer.lastProgressTime = now;
+          this.emit('progress', {
+            transferId,
+            role: 'sender',
+            transferredBytes: transfer.transferredBytes,
+            totalBytes: transfer.metadata.fileSize,
+            percent,
+            status: percent >= 100 ? 'completed' : 'transferring',
+            localPath: transfer.filePath,
+          } as TransferProgressEvent);
+        }
 
         // Yield to event loop to avoid socket starvation and allow message interleaving
         await new Promise((resolve) => setImmediate(resolve));
@@ -360,7 +374,10 @@ export class FileTransferManager extends EventEmitter {
     }
 
     // 1. Duplicate chunk handling
-    if (transfer.receivedChunks.has(validatedChunk.chunkIndex)) {
+    if (
+      validatedChunk.chunkIndex < transfer.nextExpectedIndex ||
+      transfer.receivedChunks.has(validatedChunk.chunkIndex)
+    ) {
       console.log(`[Subnet:Transfer] Duplicate chunk #${validatedChunk.chunkIndex} ignored for transfer ${validatedChunk.transferId}`);
       return { completed: false, success: true, duplicate: true };
     }
@@ -373,7 +390,7 @@ export class FileTransferManager extends EventEmitter {
       return { completed: false, success: false, error: 'Out-of-order chunk received' };
     }
 
-    // 3. Write chunk to .part stream
+    // 3. Write chunk to .part stream with backpressure handling
     const buf = Buffer.from(validatedChunk.data, 'base64');
     if (!transfer.writeStream) {
       return { completed: false, success: false, error: 'Write stream closed' };
@@ -381,24 +398,35 @@ export class FileTransferManager extends EventEmitter {
 
     transfer.receivedChunks.add(validatedChunk.chunkIndex);
     transfer.nextExpectedIndex++;
-    transfer.writeStream.write(buf);
     transfer.hasher.update(buf);
     transfer.transferredBytes += buf.length;
 
+    const canWriteMore = transfer.writeStream.write(buf);
+    if (!canWriteMore) {
+      await new Promise<void>((resolve) => {
+        transfer.writeStream?.once('drain', resolve);
+      });
+    }
+
+    const now = Date.now();
     const percent = Math.min(
       100,
       Math.round((transfer.transferredBytes / transfer.metadata.fileSize) * 100)
     );
 
-    this.emit('progress', {
-      transferId: transfer.transferId,
-      role: 'receiver',
-      transferredBytes: transfer.transferredBytes,
-      totalBytes: transfer.metadata.fileSize,
-      percent,
-      status: 'transferring',
-      localPath: transfer.finalPath,
-    } as TransferProgressEvent);
+    // Throttle progress events to max once every 100ms or on completion to prevent IPC flooding
+    if (percent >= 100 || now - (transfer.lastProgressTime || 0) >= 100) {
+      transfer.lastProgressTime = now;
+      this.emit('progress', {
+        transferId: transfer.transferId,
+        role: 'receiver',
+        transferredBytes: transfer.transferredBytes,
+        totalBytes: transfer.metadata.fileSize,
+        percent,
+        status: 'transferring',
+        localPath: transfer.finalPath,
+      } as TransferProgressEvent);
+    }
 
     // 4. Check if final chunk received
     if (transfer.nextExpectedIndex >= transfer.metadata.totalChunks) {
@@ -514,6 +542,22 @@ export class FileTransferManager extends EventEmitter {
         error: reason || 'Transfer cancelled by user',
       } as TransferProgressEvent);
       this.inboundTransfers.delete(transferId);
+    }
+  }
+
+  /**
+   * Cancels all active in-flight inbound and outbound transfers for a disconnected peer.
+   */
+  public cancelTransfersForPeer(peerId: string, reason?: string): void {
+    for (const [id, outbound] of this.outboundTransfers.entries()) {
+      if (outbound.recipientPeerId === peerId) {
+        this.cancelTransfer(id, reason || 'Peer disconnected from network');
+      }
+    }
+    for (const [id, inbound] of this.inboundTransfers.entries()) {
+      if (inbound.senderPeerId === peerId) {
+        this.cancelTransfer(id, reason || 'Peer disconnected from network');
+      }
     }
   }
 

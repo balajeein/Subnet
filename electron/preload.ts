@@ -104,8 +104,24 @@ const subnetBridge: SubnetAPI = {
     return ipcRenderer.invoke('subnet:select-avatar-file');
   },
 
-  selectAttachmentFile: (mode: 'all' | 'media') => {
-    return ipcRenderer.invoke('subnet:select-attachment-file', mode);
+  getSystemAvatar: (): Promise<{ success: boolean; dataUrl?: string; error?: string }> => {
+    return ipcRenderer.invoke('subnet:get-system-avatar');
+  },
+
+  selectAttachmentFile: (mode?: 'all' | 'media') => {
+    return ipcRenderer.invoke('subnet:select-attachment-file', mode || 'all');
+  },
+
+  selectAttachmentFiles: (mode?: 'all' | 'media') => {
+    return ipcRenderer.invoke('subnet:select-attachment-file', mode || 'all');
+  },
+
+  checkMediaPermissions: (type: 'camera' | 'microphone') => {
+    return ipcRenderer.invoke('subnet:check-media-permissions', type);
+  },
+
+  requestMediaPermissions: (types: Array<'camera' | 'microphone'>) => {
+    return ipcRenderer.invoke('subnet:request-media-permissions', types);
   },
 
   sendAttachment: (
@@ -163,6 +179,12 @@ const subnetBridge: SubnetAPI = {
   openFile: (filePath: string) => {
     return ipcRenderer.invoke('subnet:open-file', filePath);
   },
+
+  saveFileAs: (sourcePath: string, defaultName?: string) => {
+    return ipcRenderer.invoke('subnet:save-file-as', { sourcePath, defaultName });
+  },
+
+  isElectron: true,
 
   onTransferProgress: (callback: (progress: any) => void): (() => void) => {
     const listener = (_event: IpcRendererEvent, progress: any) => callback(progress);

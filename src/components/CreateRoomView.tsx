@@ -3,8 +3,6 @@ import {
   Users,
   VenetianMask,
   Laptop,
-  Shuffle,
-  ShieldAlert,
   ArrowLeft,
   Plus,
   Search,
@@ -22,23 +20,6 @@ interface CreateRoomViewProps {
   onRoomCreated: (roomId: string) => void;
 }
 
-const RANDOM_NICKNAMES = [
-  'Neon Otter',
-  'Silent Falcon',
-  'Swift Aspen',
-  'Shadow Lynx',
-  'Frost Raven',
-  'Cobalt Fox',
-  'Velvet Wolf',
-  'Solar Panther',
-  'Lunar Drift',
-  'Quiet Cedar',
-  'Silver Hawk',
-  'Cosmic Pine',
-  'Echo Badger',
-  'Misty Brook',
-];
-
 export default function CreateRoomView({
   discoveredPeers,
   defaultAnonymousNickname,
@@ -51,10 +32,7 @@ export default function CreateRoomView({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedPeerIds, setSelectedPeerIds] = useState<Set<string>>(new Set());
   const [anonNickname, setAnonNickname] = useState<string>(() => {
-    return (
-      defaultAnonymousNickname?.trim() ||
-      RANDOM_NICKNAMES[Math.floor(Math.random() * RANDOM_NICKNAMES.length)]
-    );
+    return defaultAnonymousNickname?.trim() || '';
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -112,11 +90,6 @@ export default function CreateRoomView({
     setSelectedPeerIds(new Set());
   };
 
-  const handleShuffleNickname = () => {
-    const random = RANDOM_NICKNAMES[Math.floor(Math.random() * RANDOM_NICKNAMES.length)];
-    setAnonNickname(random);
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
@@ -152,7 +125,7 @@ export default function CreateRoomView({
     } else {
       const trimmedNick = anonNickname.trim();
       if (!trimmedNick) {
-        setErrorMessage('Please enter or generate a room nickname');
+        setErrorMessage('Please enter a nickname for the anonymous room');
         return;
       }
 
@@ -352,7 +325,7 @@ export default function CreateRoomView({
                             avatarType={peer.avatar?.avatarType}
                             avatarValue={peer.avatar?.avatarValue}
                             size={30}
-                            fallbackIconColor="#38bdf8"
+                            fallbackIconColor="#B58AE8"
                           />
                         </div>
                         <div className="peer-row-meta">
@@ -382,26 +355,16 @@ export default function CreateRoomView({
                 <label htmlFor="anon-nick-input" className="form-label">
                   Your Room Nickname
                 </label>
-                <div className="nickname-input-wrap">
-                  <input
-                    id="anon-nick-input"
-                    type="text"
-                    maxLength={30}
-                    value={anonNickname}
-                    onChange={(e) => setAnonNickname(e.target.value)}
-                    className="form-input"
-                    placeholder="Pseudonym in this room"
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="nickname-shuffle-btn"
-                    onClick={handleShuffleNickname}
-                    title="Generate random nickname"
-                  >
-                    <Shuffle style={{ width: 14, height: 14 }} />
-                  </button>
-                </div>
+                <input
+                  id="anon-nick-input"
+                  type="text"
+                  maxLength={30}
+                  value={anonNickname}
+                  onChange={(e) => setAnonNickname(e.target.value)}
+                  className="form-input"
+                  placeholder="Enter your room nickname"
+                  required
+                />
                 <span className="form-hint">
                   Shown to room members instead of your profile name or picture.
                 </span>
@@ -409,24 +372,12 @@ export default function CreateRoomView({
 
               {/* Unlimited LAN Participants Disclosure */}
               <div className="anon-unlimited-notice">
-                <Users style={{ width: 16, height: 16, color: '#38bdf8', flexShrink: 0 }} />
+                <Users style={{ width: 16, height: 16, color: '#B58AE8', flexShrink: 0 }} />
                 <div className="notice-content">
                   <strong>Unlimited LAN Participants:</strong>
                   <p>
                     Any nearby device running Subnet on this Wi-Fi network can discover and join this room.
                     All authorized participants can exchange messages with dynamic member updates and bounded backpressure.
-                  </p>
-                </div>
-              </div>
-
-              {/* Privacy Boundary Disclosure */}
-              <div className="anon-privacy-notice">
-                <ShieldAlert style={{ width: 16, height: 16, color: '#f59e0b', flexShrink: 0 }} />
-                <div className="notice-content">
-                  <strong>Anonymous Room Privacy:</strong>
-                  <p>
-                    Your configured macOS profile picture and device name will NEVER be visible in this room.
-                    Only your chosen pseudonym and a randomly assigned room avatar will be shown.
                   </p>
                 </div>
               </div>

@@ -164,24 +164,14 @@ export default function App(): React.JSX.Element {
   // Theme application effect
   useEffect(() => {
     const applyTheme = (theme: 'system' | 'dark' | 'light') => {
-      if (theme === 'system') {
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        document.documentElement.setAttribute('data-theme', prefersDark ? 'dark' : 'light');
+      if (theme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
       } else {
-        document.documentElement.setAttribute('data-theme', theme);
+        document.documentElement.setAttribute('data-theme', 'light');
       }
     };
 
-    applyTheme(settings.theme || 'system');
-
-    if ((settings.theme || 'system') === 'system') {
-      const media = window.matchMedia('(prefers-color-scheme: dark)');
-      const listener = (e: MediaQueryListEvent) => {
-        document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
-      };
-      media.addEventListener('change', listener);
-      return () => media.removeEventListener('change', listener);
-    }
+    applyTheme(settings.theme || 'light');
   }, [settings.theme]);
 
   const handleUpdateSettings = useCallback(
@@ -805,7 +795,7 @@ export default function App(): React.JSX.Element {
                               avatarType={peer.avatar?.avatarType}
                               avatarValue={peer.avatar?.avatarValue}
                               size={36}
-                              fallbackIconColor="#38bdf8"
+                              fallbackIconColor="#B58AE8"
                             />
                             <div className="radar-dropdown-info">
                               <div className="radar-dropdown-name-row">

@@ -76,7 +76,7 @@ export default function ConversationList({
               }}
             >
               <div className="conversation-avatar-wrap">
-                <Laptop style={{ width: 20, height: 20, color: isOnline ? '#38bdf8' : '#64748b' }} />
+                <Laptop style={{ width: 20, height: 20, color: isOnline ? '#B58AE8' : '#77717F' }} />
                 <span className={`status-indicator-dot ${isOnline ? 'online' : 'offline'}`} />
               </div>
 

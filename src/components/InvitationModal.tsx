@@ -18,7 +18,7 @@ export default function InvitationModal({
       <div className="invitation-modal-card">
         <div className="invitation-header">
           <div className="invitation-badge">
-            <MessageSquare style={{ width: 14, height: 14, color: '#38bdf8' }} />
+            <MessageSquare style={{ width: 14, height: 14, color: '#B58AE8' }} />
             <span>Chat Invitation</span>
           </div>
           <span className="invitation-time">
@@ -28,7 +28,7 @@ export default function InvitationModal({
 
         <div className="invitation-peer-row">
           <div className="invitation-avatar">
-            <Laptop style={{ width: 22, height: 22, color: '#38bdf8' }} />
+            <Laptop style={{ width: 22, height: 22, color: '#B58AE8' }} />
           </div>
           <div className="invitation-peer-meta">
             <h3 id="invitation-title" className="invitation-sender-name">

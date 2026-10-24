@@ -409,7 +409,7 @@ export function validateFileAttachmentMetadata(meta: unknown): FileAttachmentMet
     typeof m.fileSize === 'number' &&
     Number.isFinite(m.fileSize) &&
     m.fileSize >= 0 &&
-    m.fileSize <= 5 * 1024 * 1024 * 1024 &&
+    m.fileSize <= 100 * 1024 * 1024 * 1024 &&
     typeof m.mimeType === 'string' &&
     m.mimeType.trim().length <= 100 &&
     typeof m.sha256 === 'string' &&

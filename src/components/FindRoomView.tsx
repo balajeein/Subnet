@@ -4,13 +4,12 @@ import {
   VenetianMask,
   Check,
   X,
-  Shuffle,
-  ShieldAlert,
   ArrowLeft,
   Radio,
   DoorOpen,
 } from 'lucide-react';
 import type { RoomSummary, DiscoveredRoom } from '../types/subnet';
+import MascotAvatar from './MascotAvatar';
 
 interface FindRoomViewProps {
   rooms: RoomSummary[];
@@ -23,23 +22,6 @@ interface FindRoomViewProps {
   onOpenCreateRoom: () => void;
   onCancel: () => void;
 }
-
-const RANDOM_NICKNAMES = [
-  'Neon Otter',
-  'Silent Falcon',
-  'Swift Aspen',
-  'Shadow Lynx',
-  'Frost Raven',
-  'Cobalt Fox',
-  'Velvet Wolf',
-  'Solar Panther',
-  'Lunar Drift',
-  'Quiet Cedar',
-  'Silver Hawk',
-  'Cosmic Pine',
-  'Echo Badger',
-  'Misty Brook',
-];
 
 export default function FindRoomView({
   rooms,
@@ -67,15 +49,8 @@ export default function FindRoomView({
 
   const handleOpenJoinModal = (room: DiscoveredRoom) => {
     setJoiningRoom(room);
-    setJoinNickname(
-      defaultAnonymousNickname?.trim() ||
-        RANDOM_NICKNAMES[Math.floor(Math.random() * RANDOM_NICKNAMES.length)]
-    );
+    setJoinNickname(defaultAnonymousNickname?.trim() || '');
     setJoinError(null);
-  };
-
-  const handleShuffleNickname = () => {
-    setJoinNickname(RANDOM_NICKNAMES[Math.floor(Math.random() * RANDOM_NICKNAMES.length)]);
   };
 
   const handleConfirmJoin = async (e: React.FormEvent) => {
@@ -85,7 +60,7 @@ export default function FindRoomView({
     setJoinError(null);
     const trimmedNick = joinNickname.trim();
     if (!trimmedNick) {
-      setJoinError('Please enter a nickname');
+      setJoinError('Please enter a nickname to join this room');
       return;
     }
 
@@ -162,8 +137,8 @@ export default function FindRoomView({
                   {pendingPrivateInvites.map((room) => (
                     <div key={room.id} className="room-card invite-card">
                       <div className="room-card-top">
-                        <div className="room-card-icon-wrap private">
-                          <Users style={{ width: 20, height: 20, color: '#38bdf8' }} />
+                        <div className="room-card-icon-wrap">
+                          <MascotAvatar id={room.id} name={room.name} size={36} />
                         </div>
                         <div className="room-card-meta">
                           <h3 className="room-card-name">{room.name}</h3>
@@ -216,8 +191,8 @@ export default function FindRoomView({
                       tabIndex={0}
                     >
                       <div className="room-card-top">
-                        <div className="room-card-icon-wrap private">
-                          <Users style={{ width: 20, height: 20, color: '#38bdf8' }} />
+                        <div className="room-card-icon-wrap">
+                          <MascotAvatar id={room.id} name={room.name} size={36} />
                         </div>
                         <div className="room-card-meta">
                           <h3 className="room-card-name">{room.name}</h3>
@@ -288,8 +263,8 @@ export default function FindRoomView({
                   return (
                     <div key={room.id} className="room-card anon-card">
                       <div className="room-card-top">
-                        <div className="room-card-icon-wrap anon">
-                          <VenetianMask style={{ width: 20, height: 20, color: '#a855f7' }} />
+                        <div className="room-card-icon-wrap">
+                          <MascotAvatar id={room.id} name={room.name} size={36} />
                         </div>
                         <div className="room-card-meta">
                           <h3 className="room-card-name">{room.name}</h3>
@@ -374,38 +349,20 @@ export default function FindRoomView({
                 <label htmlFor="join-nickname-input" className="form-label">
                   Choose your room display nickname:
                 </label>
-                <div className="nickname-input-wrap">
-                  <input
-                    id="join-nickname-input"
-                    type="text"
-                    maxLength={30}
-                    value={joinNickname}
-                    onChange={(e) => setJoinNickname(e.target.value)}
-                    className="form-input"
-                    placeholder="e.g. Swift Aspen"
-                    autoFocus
-                    required
-                  />
-                  <button
-                    type="button"
-                    className="nickname-shuffle-btn"
-                    onClick={handleShuffleNickname}
-                    title="Generate random nickname"
-                  >
-                    <Shuffle style={{ width: 14, height: 14 }} />
-                  </button>
-                </div>
+                <input
+                  id="join-nickname-input"
+                  type="text"
+                  maxLength={30}
+                  value={joinNickname}
+                  onChange={(e) => setJoinNickname(e.target.value)}
+                  className="form-input"
+                  placeholder="Enter your room nickname"
+                  autoFocus
+                  required
+                />
                 <span className="form-hint">
                   Allowed: 2 to 30 characters (letters, numbers, spaces, dashes)
                 </span>
-              </div>
-
-              <div className="anon-privacy-notice modal-notice">
-                <ShieldAlert style={{ width: 15, height: 15, color: '#f59e0b', flexShrink: 0 }} />
-                <p>
-                  Your real profile name and device ID will stay hidden inside the room UI.
-                  Messages are relayed unencrypted over the local Wi-Fi network.
-                </p>
               </div>
 
               <div className="modal-actions">

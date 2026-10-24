@@ -20,3 +20,5 @@ coverage/
 # Local AI agent skills
 .agents/skills/
 .agent/skills/
+# Playwright CLI output (may contain credentials)
+.playwright-cli/

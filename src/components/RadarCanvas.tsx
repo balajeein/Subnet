@@ -295,7 +295,9 @@ export default function RadarCanvas({
               avatarType={settings.avatarType}
               avatarValue={settings.avatarValue}
               size={52}
-              fallbackIconColor="#38bdf8"
+              name={localProfile?.name || 'Local Mac'}
+              alt={localProfile?.name || 'Local Mac'}
+              fallbackIconColor="#B58AE8"
             />
             <span className="radar-local-glow" />
           </div>
@@ -335,7 +337,9 @@ export default function RadarCanvas({
                   avatarType={peer.avatar?.avatarType}
                   avatarValue={peer.avatar?.avatarValue}
                   size={46}
-                  fallbackIconColor="#38bdf8"
+                  name={peer.name}
+                  alt={peer.name}
+                  fallbackIconColor="#B58AE8"
                 />
 
                 {/* Unread Message Badge */}

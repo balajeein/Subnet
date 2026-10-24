@@ -1,14 +1,50 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { Laptop } from 'lucide-react';
 import { getPresetAvatar } from '../utils/avatars';
 
 interface UserAvatarProps {
-  avatarType?: 'default' | 'preset' | 'custom';
+  avatarType?: 'default' | 'preset' | 'custom' | 'mascot';
   avatarValue?: string;
   size?: number;
   className?: string;
   fallbackIconColor?: string;
   alt?: string;
+  name?: string;
+}
+
+const PASTEL_PALETTE = [
+  { bg: '#F0E6FA', fg: '#6941A5', border: '#E2D3F5' }, // Lavender
+  { bg: '#DDF3EA', fg: '#217355', border: '#C5E8D9' }, // Mint
+  { bg: '#F8E3D8', fg: '#964E24', border: '#F0CBB7' }, // Peach
+  { bg: '#FEF6D8', fg: '#7C5C10', border: '#F8E9B0' }, // Butter
+  { bg: '#EAF0F6', fg: '#2B5A84', border: '#D0DFEE' }, // Sky
+  { bg: '#FCE8EF', fg: '#9B3256', border: '#F5CBD9' }, // Rose
+  { bg: '#ECE8F4', fg: '#544175', border: '#DDD4EA' }, // Lilac
+  { bg: '#E2F4EE', fg: '#1C6955', border: '#C2E7DB' }, // Sage
+];
+
+function getDeterministicPastel(seed: string) {
+  let hash = 0;
+  for (let i = 0; i < seed.length; i++) {
+    hash = (hash << 5) - hash + seed.charCodeAt(i);
+    hash |= 0;
+  }
+  return PASTEL_PALETTE[Math.abs(hash) % PASTEL_PALETTE.length];
+}
+
+function getMonogram(name: string): string {
+  const clean = name.trim();
+  if (!clean || clean.toLowerCase() === 'avatar') return '';
+  const words = clean.split(/[\s\-._]+/).filter(Boolean);
+  if (words.length >= 2) {
+    const first = words[0][0];
+    const second = words[1][0];
+    if (/[a-zA-Z0-9]/.test(first) && /[a-zA-Z0-9]/.test(second)) {
+      return (first + second).toUpperCase();
+    }
+  }
+  const firstChar = clean[0];
+  return /[a-zA-Z0-9]/.test(firstChar) ? firstChar.toUpperCase() : '';
 }
 
 export default function UserAvatar({
@@ -16,16 +52,32 @@ export default function UserAvatar({
   avatarValue = '',
   size = 32,
   className = '',
-  fallbackIconColor = '#38bdf8',
+  fallbackIconColor,
   alt = 'Avatar',
+  name,
 }: UserAvatarProps): React.JSX.Element {
+  const [imgError, setImgError] = useState(false);
+  const displayName = name || (alt !== 'Avatar' ? alt : '');
+  const pastel = getDeterministicPastel(displayName || 'SubnetPeer');
+  const monogram = getMonogram(displayName);
+
+  // Priority 1: Preset Avatar
   if (avatarType === 'preset' && avatarValue) {
     const preset = getPresetAvatar(avatarValue);
     if (preset) {
       return (
         <div
           className={`user-avatar-wrap preset-avatar ${className}`}
-          style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          style={{
+            width: size,
+            height: size,
+            borderRadius: '50%',
+            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexShrink: 0,
+          }}
           title={preset.name}
         >
           {preset.svg({ size })}
@@ -34,26 +86,35 @@ export default function UserAvatar({
     }
   }
 
-  if (avatarType === 'custom' && avatarValue) {
+  // Priority 1 / 2 / 3: Custom or explicitly shared photo (or OS account photo)
+  if (avatarType === 'custom' && avatarValue && !imgError) {
     return (
       <div
         className={`user-avatar-wrap custom-avatar ${className}`}
-        style={{ width: size, height: size, borderRadius: '50%', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.08)' }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: pastel.bg,
+          boxShadow: `inset 0 0 0 1px ${pastel.border}`,
+          flexShrink: 0,
+        }}
       >
         <img
           src={avatarValue}
           alt={alt}
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-          onError={(e) => {
-            // Fallback to default if image fails to render
-            (e.target as HTMLElement).style.display = 'none';
-          }}
+          onError={() => setImgError(true)}
         />
       </div>
     );
   }
 
-  // Default device laptop icon
+  // Priority 4: Locally generated pastel avatar fallback (deterministic monogram or icon)
   return (
     <div
       className={`user-avatar-wrap default-avatar ${className}`}
@@ -61,12 +122,31 @@ export default function UserAvatar({
         width: size,
         height: size,
         borderRadius: '50%',
+        backgroundColor: pastel.bg,
+        color: fallbackIconColor || pastel.fg,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
+        fontSize: Math.max(10, Math.round(size * 0.38)),
+        fontWeight: 600,
+        letterSpacing: '-0.02em',
+        userSelect: 'none',
+        boxShadow: `inset 0 0 0 1px ${pastel.border}`,
+        flexShrink: 0,
       }}
+      title={displayName || alt}
     >
-      <Laptop style={{ width: Math.round(size * 0.55), height: Math.round(size * 0.55), color: fallbackIconColor }} />
+      {monogram ? (
+        <span>{monogram}</span>
+      ) : (
+        <Laptop
+          style={{
+            width: Math.round(size * 0.52),
+            height: Math.round(size * 0.52),
+            color: fallbackIconColor || pastel.fg,
+          }}
+        />
+      )}
     </div>
   );
 }

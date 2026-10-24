@@ -233,6 +233,50 @@ export class PeerConnection extends EventEmitter {
     }
   }
 
+  public isBackpressured(): boolean {
+    return (
+      this.ws.readyState !== WebSocket.OPEN ||
+      this.ws.bufferedAmount >= MAX_SOCKET_BUFFERED_AMOUNT
+    );
+  }
+
+  public async waitForDrain(maxWaitMs = 15000): Promise<boolean> {
+    if (this.ws.readyState !== WebSocket.OPEN) return false;
+    if (this.ws.bufferedAmount < MAX_SOCKET_BUFFERED_AMOUNT / 2) return true;
+
+    return new Promise<boolean>((resolve) => {
+      let settled = false;
+      const timeout = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          resolve(this.ws.readyState === WebSocket.OPEN && this.ws.bufferedAmount < MAX_SOCKET_BUFFERED_AMOUNT);
+        }
+      }, maxWaitMs);
+
+      const interval = setInterval(() => {
+        if (this.ws.readyState !== WebSocket.OPEN) {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(false);
+          }
+        } else if (this.ws.bufferedAmount < MAX_SOCKET_BUFFERED_AMOUNT / 4) {
+          if (!settled) {
+            settled = true;
+            cleanup();
+            resolve(true);
+          }
+        }
+      }, 10);
+
+      const cleanup = () => {
+        clearTimeout(timeout);
+        clearInterval(interval);
+      };
+    });
+  }
+
   public close(code = 1000, reason = 'Normal closure'): void {
     this.cleanup();
     this.state = 'closed';

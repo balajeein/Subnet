@@ -7,8 +7,6 @@ import {
   PanelLeftOpen,
   MessageSquare,
   Compass,
-  Users,
-  VenetianMask,
   MoreVertical,
   Trash2,
   UserX,
@@ -19,6 +17,7 @@ import {
 } from 'lucide-react';
 import type { ConversationSummary, Peer, LocalProfile, RoomSummary, UserSettings } from '../types/subnet';
 import UserAvatar from './UserAvatar';
+import MascotAvatar from './MascotAvatar';
 
 export type ActiveView =
   | { type: 'radar' }
@@ -218,7 +217,7 @@ export default function Sidebar({
           onClick={onSelectCreateRoom}
           title="Create Room"
         >
-          <Plus style={{ width: 16, height: 16, flexShrink: 0, color: '#38bdf8' }} />
+          <Plus style={{ width: 16, height: 16, flexShrink: 0, color: '#B58AE8' }} />
           {!isCollapsed && <span>Create Room</span>}
         </button>
 
@@ -229,7 +228,7 @@ export default function Sidebar({
           onClick={onSelectFindRoom}
           title="Find Room"
         >
-          <Compass style={{ width: 16, height: 16, flexShrink: 0, color: '#a855f7' }} />
+          <Compass style={{ width: 16, height: 16, flexShrink: 0, color: '#36B987' }} />
           {!isCollapsed && <span>Find Room</span>}
         </button>
 
@@ -320,12 +319,8 @@ export default function Sidebar({
                     }}
                     title={isCollapsed ? `${room.name} (${isAnon ? 'Anonymous' : 'Private'})` : undefined}
                   >
-                    <div className={`chat-row-avatar-wrap ${isAnon ? 'room-anon' : 'room-private'}`}>
-                      {isAnon ? (
-                        <VenetianMask style={{ width: 16, height: 16, color: '#c084fc' }} />
-                      ) : (
-                        <Users style={{ width: 16, height: 16, color: '#38bdf8' }} />
-                      )}
+                    <div className="chat-row-avatar-wrap">
+                      <MascotAvatar id={room.id} name={room.name} size={28} />
                     </div>
 
                     {!isCollapsed && (
@@ -474,7 +469,9 @@ export default function Sidebar({
                         avatarType={onlinePeer?.avatar?.avatarType || conv.peerAvatar?.avatarType}
                         avatarValue={onlinePeer?.avatar?.avatarValue || conv.peerAvatar?.avatarValue}
                         size={24}
-                        fallbackIconColor={isOnline ? '#38bdf8' : '#64748b'}
+                        name={conv.peerName}
+                        alt={conv.peerName}
+                        fallbackIconColor={isOnline ? '#B58AE8' : '#77717F'}
                       />
                       <span className={`online-indicator-dot ${isOnline ? 'online' : 'offline'}`} />
                     </div>
@@ -590,7 +587,9 @@ export default function Sidebar({
               avatarType={userSettings?.avatarType}
               avatarValue={userSettings?.avatarValue}
               size={26}
-              fallbackIconColor="#38bdf8"
+              name={localProfile?.name || 'My Mac'}
+              alt={localProfile?.name || 'My Mac'}
+              fallbackIconColor="#B58AE8"
             />
           </div>
           {!isCollapsed && (

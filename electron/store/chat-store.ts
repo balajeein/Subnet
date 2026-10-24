@@ -72,6 +72,7 @@ export interface UserSettings {
   theme: 'system' | 'dark' | 'light';
   notificationsEnabled: boolean;
   soundEnabled: boolean;
+  shareAvatarWithPeers?: boolean;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -81,6 +82,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   theme: 'system',
   notificationsEnabled: true,
   soundEnabled: true,
+  shareAvatarWithPeers: true,
 };
 
 export interface ChatStoreData {

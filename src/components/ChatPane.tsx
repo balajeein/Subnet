@@ -9,11 +9,9 @@ import {
   WifiOff,
   Check,
   X,
-  Plus,
   Paperclip,
-  Image as ImageIcon,
   Camera,
-  Video,
+  Smile,
 } from 'lucide-react';
 import type {
   Peer,
@@ -25,8 +23,8 @@ import type {
   FileTransferProgress,
 } from '../types/subnet';
 import UserAvatar from './UserAvatar';
-import FilePreviewModal from './FilePreviewModal';
 import CameraCaptureModal from './CameraCaptureModal';
+import MediaViewerModal, { ViewingMedia } from './MediaViewerModal';
 import AttachmentBubble from './AttachmentBubble';
 
 interface ChatPaneProps {
@@ -55,20 +53,13 @@ export default function ChatPane({
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Attachment state
-  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
-  const [previewFile, setPreviewFile] = useState<{
-    filePath: string;
-    fileName: string;
-    fileSize: number;
-    mimeType: string;
-    thumbnail?: string;
-  } | null>(null);
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+  const emojiMenuRef = useRef<HTMLDivElement>(null);
   const [cameraModalMode, setCameraModalMode] = useState<'photo' | 'video' | null>(null);
+  const [viewingMedia, setViewingMedia] = useState<ViewingMedia | null>(null);
   const [transferProgressMap, setTransferProgressMap] = useState<Record<string, FileTransferProgress>>({});
-  const attachmentMenuRef = useRef<HTMLDivElement>(null);
 
-  // 1. Load messages from Electron Main Process persistent store
+  // 1. Load messages from Electron Process persistent store
   useEffect(() => {
     let isMounted = true;
     if (window.subnet?.getConversationMessages) {
@@ -99,32 +90,17 @@ export default function ChatPane({
     textareaRef.current?.focus();
   }, [activePeer.id]);
 
-  // 4. Click outside or Escape to close attachment menu
+  // Click outside to close emoji picker
   useEffect(() => {
-    if (!showAttachmentMenu) return;
-
-    const handleDocumentClick = (e: MouseEvent) => {
-      if (
-        attachmentMenuRef.current &&
-        !attachmentMenuRef.current.contains(e.target as Node)
-      ) {
-        setShowAttachmentMenu(false);
+    if (!showEmojiPicker) return;
+    const handleEmojiClick = (e: MouseEvent) => {
+      if (emojiMenuRef.current && !emojiMenuRef.current.contains(e.target as Node)) {
+        setShowEmojiPicker(false);
       }
     };
-
-    const handleDocumentKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShowAttachmentMenu(false);
-      }
-    };
-
-    document.addEventListener('mousedown', handleDocumentClick);
-    document.addEventListener('keydown', handleDocumentKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', handleDocumentClick);
-      document.removeEventListener('keydown', handleDocumentKeyDown);
-    };
-  }, [showAttachmentMenu]);
+    document.addEventListener('mousedown', handleEmojiClick);
+    return () => document.removeEventListener('mousedown', handleEmojiClick);
+  }, [showEmojiPicker]);
 
   // 5. Subscribe to real-time events from IPC bridge
   useEffect(() => {
@@ -215,7 +191,9 @@ export default function ChatPane({
     }
 
     setErrorMessage(null);
+    setInputText('');
     setIsSending(true);
+    textareaRef.current?.focus();
 
     try {
       const result = await window.subnet.sendMessage(activePeer.id, text);
@@ -237,49 +215,58 @@ export default function ChatPane({
           };
           setMessages((prev) => [...prev, outgoingMessage]);
         }
-        setInputText('');
       } else {
         setErrorMessage(result.error || 'Failed to deliver message over local network');
+        setInputText(text);
       }
     } catch (err: any) {
       setErrorMessage(err.message || 'Transmission error');
+      setInputText(text);
     } finally {
       setIsSending(false);
       textareaRef.current?.focus();
     }
   };
 
-  const handleSelectFile = async (filterType: 'all' | 'media' = 'all') => {
-    setShowAttachmentMenu(false);
+  const handleAttachFiles = async () => {
     try {
-      const selected = await window.subnet.selectAttachmentFile(filterType);
-      if (selected && selected.success && selected.file) {
-        setPreviewFile(selected.file);
+      const selected = await (window.subnet.selectAttachmentFiles
+        ? window.subnet.selectAttachmentFiles('all')
+        : window.subnet.selectAttachmentFile('all'));
+
+      if (!selected || !selected.success) {
+        // Picker was cancelled -> do nothing and keep composer usable
+        return;
+      }
+
+      const files =
+        selected.files && selected.files.length > 0
+          ? selected.files
+          : selected.file
+            ? [selected.file]
+            : [];
+
+      if (files.length === 0) return;
+
+      setIsSending(true);
+      setErrorMessage(null);
+
+      for (const f of files) {
+        const res = await window.subnet.sendAttachment(activePeer.id, 'direct', f.filePath);
+        if (!res.success) {
+          setErrorMessage(res.error || `Failed to send ${f.fileName}`);
+        }
+      }
+
+      const stored = await window.subnet.getConversationMessages(activePeer.id);
+      if (Array.isArray(stored)) {
+        setMessages(stored);
       }
     } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to select file');
-    }
-  };
-
-  const handleConfirmSendFile = async (caption?: string) => {
-    if (!previewFile) return;
-    const file = previewFile;
-    setPreviewFile(null);
-    setIsSending(true);
-    setErrorMessage(null);
-
-    try {
-      const res = await window.subnet.sendAttachment(activePeer.id, 'direct', file.filePath, caption);
-      if (res.success) {
-        const stored = await window.subnet.getConversationMessages(activePeer.id);
-        if (Array.isArray(stored)) setMessages(stored);
-      } else {
-        setErrorMessage(res.error || 'Failed to send file');
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || 'Failed to send file');
+      setErrorMessage(err.message || 'Failed to send attachment');
     } finally {
       setIsSending(false);
+      textareaRef.current?.focus();
     }
   };
 
@@ -386,7 +373,9 @@ export default function ChatPane({
               avatarType={activePeer.avatar?.avatarType || conversation?.peerAvatar?.avatarType}
               avatarValue={activePeer.avatar?.avatarValue || conversation?.peerAvatar?.avatarValue}
               size={32}
-              fallbackIconColor={isPeerOnline ? '#38bdf8' : '#64748b'}
+              name={activePeer.name}
+              alt={activePeer.name}
+              fallbackIconColor={isPeerOnline ? '#B58AE8' : '#77717F'}
             />
           </div>
           <div className="chat-meta">
@@ -409,7 +398,7 @@ export default function ChatPane({
       {isPendingIncoming && conversation?.pendingInvitation && onAcceptInvitation && onDeclineInvitation && (
         <div className="chat-invitation-action-banner">
           <div className="invitation-action-info">
-            <MessageSquare style={{ width: 16, height: 16, color: '#38bdf8', flexShrink: 0 }} />
+            <MessageSquare style={{ width: 16, height: 16, color: '#B58AE8', flexShrink: 0 }} />
             <span>{activePeer.name} sent you a chat invitation. Accept to reply?</span>
           </div>
           <div className="invitation-action-buttons">
@@ -449,7 +438,7 @@ export default function ChatPane({
       {/* Pending Outgoing Invitation Banner */}
       {isPendingOutgoing && (
         <div className="chat-pending-banner">
-          <Clock style={{ width: 14, height: 14, color: '#38bdf8', flexShrink: 0 }} />
+          <Clock style={{ width: 14, height: 14, color: '#B58AE8', flexShrink: 0 }} />
           <span>Chat invitation sent. Waiting for {activePeer.name} to accept...</span>
         </div>
       )}
@@ -487,9 +476,8 @@ export default function ChatPane({
             return (
               <div
                 key={msg.id}
-                className={`message-row ${isMe ? 'outgoing' : 'incoming'} ${
-                  isConsecutive ? 'consecutive' : ''
-                }`}
+                className={`message-row ${isMe ? 'outgoing' : 'incoming'} ${isConsecutive ? 'consecutive' : ''
+                  }`}
               >
                 {!isMe && (
                   <div className="message-peer-avatar-slot">
@@ -506,7 +494,9 @@ export default function ChatPane({
                           conversation?.peerAvatar?.avatarValue
                         }
                         size={28}
-                        fallbackIconColor="#38bdf8"
+                        name={activePeer.name}
+                        alt={activePeer.name}
+                        fallbackIconColor="#B58AE8"
                       />
                     ) : (
                       <div className="message-avatar-spacer" style={{ width: 28, height: 28 }} />
@@ -525,6 +515,7 @@ export default function ChatPane({
                       onCancel={(tid) => handleCancelTransfer(tid)}
                       onShowInFinder={(p) => handleShowInFolder(p)}
                       onOpenFile={(p) => handleOpenFile(p)}
+                      onViewMedia={(media) => setViewingMedia(media)}
                     />
                   )}
                   {msg.text ? <div className="message-content">{msg.text}</div> : null}
@@ -535,7 +526,7 @@ export default function ChatPane({
                     {isMe && (
                       <span className="message-status-icon">
                         {msg.status === 'delivered' ? (
-                          <CheckCheck style={{ width: 13, height: 13, color: '#38bdf8' }} />
+                          <CheckCheck style={{ width: 13, height: 13, color: 'rgba(255, 255, 255, 0.95)' }} />
                         ) : msg.status === 'failed' ? (
                           <AlertCircle style={{ width: 12, height: 12, color: '#ef4444' }} />
                         ) : (
@@ -576,74 +567,58 @@ export default function ChatPane({
 
       {/* Input Box */}
       <div className="chat-input-area">
-        {/* Attachment + Button & Menu */}
-        <div className="chat-attachment-container" ref={attachmentMenuRef}>
+        {/* Recognizable Paperclip Attachment Action */}
+        <button
+          type="button"
+          className="chat-composer-action-btn"
+          onClick={handleAttachFiles}
+          disabled={!isPeerOnline || isSending || isDeclined}
+          title="Attach file"
+          aria-label="Attach file"
+        >
+          <Paperclip style={{ width: 17, height: 17 }} />
+        </button>
+
+        {/* Quick Camera Action */}
+        <button
+          type="button"
+          className="chat-composer-action-btn"
+          onClick={() => setCameraModalMode('photo')}
+          disabled={!isPeerOnline || isSending || isDeclined}
+          title="Take photo"
+          aria-label="Camera"
+        >
+          <Camera style={{ width: 16, height: 16 }} />
+        </button>
+
+        {/* Quick Emoji Picker */}
+        <div className="chat-emoji-container" ref={emojiMenuRef}>
           <button
             type="button"
-            className={`chat-attachment-btn ${showAttachmentMenu ? 'active' : ''}`}
-            onClick={() => setShowAttachmentMenu((prev) => !prev)}
+            className={`chat-composer-action-btn ${showEmojiPicker ? 'active' : ''}`}
+            onClick={() => setShowEmojiPicker((prev) => !prev)}
             disabled={!isPeerOnline || isSending || isDeclined}
-            title="Attach file or media (+)"
-            aria-label="Add attachment"
-            aria-expanded={showAttachmentMenu}
+            title="Add emoji"
+            aria-label="Add emoji"
           >
-            <Plus style={{ width: 18, height: 18 }} />
+            <Smile style={{ width: 16, height: 16 }} />
           </button>
-
-          {showAttachmentMenu && (
-            <div className="attachment-dropdown-menu" role="menu">
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => handleSelectFile('all')}
-              >
-                <Paperclip style={{ width: 15, height: 15, color: '#38bdf8' }} />
-                <span>Choose File</span>
-              </button>
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => handleSelectFile('media')}
-              >
-                <ImageIcon style={{ width: 15, height: 15, color: '#4ade80' }} />
-                <span>Choose Photos/Videos</span>
-              </button>
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setShowAttachmentMenu(false);
-                  setCameraModalMode('photo');
-                }}
-              >
-                <Camera style={{ width: 15, height: 15, color: '#facc15' }} />
-                <span>Take Photo</span>
-              </button>
-              <button
-                type="button"
-                className="attachment-menu-item"
-                role="menuitem"
-                onClick={() => {
-                  setShowAttachmentMenu(false);
-                  setCameraModalMode('video');
-                }}
-              >
-                <Video style={{ width: 15, height: 15, color: '#f43f5e' }} />
-                <span>Record Video</span>
-              </button>
-              <div className="attachment-menu-divider" />
-              <button
-                type="button"
-                className="attachment-menu-item cancel-item"
-                role="menuitem"
-                onClick={() => setShowAttachmentMenu(false)}
-              >
-                <X style={{ width: 15, height: 15 }} />
-                <span>Cancel</span>
-              </button>
+          {showEmojiPicker && (
+            <div className="emoji-popover-menu" role="menu">
+              {['✨', '👋', '😊', '🌸', '☕', '🐱', '🐰', '🎉', '💜', '🌿', '👍', '🤍'].map((em) => (
+                <button
+                  key={em}
+                  type="button"
+                  className="emoji-select-btn"
+                  onClick={() => {
+                    setInputText((prev) => prev + em);
+                    setShowEmojiPicker(false);
+                    textareaRef.current?.focus();
+                  }}
+                >
+                  {em}
+                </button>
+              ))}
             </div>
           )}
         </div>
@@ -658,15 +633,16 @@ export default function ChatPane({
             !isPeerOnline
               ? 'Peer is offline from local network'
               : isDeclined
-              ? 'Invitation was declined'
-              : 'Type a message... (Enter to send, Shift+Enter for newline)'
+                ? 'Invitation was declined'
+                : 'Type a message... (Enter to send, Shift+Enter for newline)'
           }
-          disabled={!isPeerOnline || isSending || isDeclined}
+          disabled={!isPeerOnline || isDeclined}
           rows={1}
         />
         <button
           className="chat-send-button"
           onClick={handleSendMessage}
+          onMouseDown={(e) => e.preventDefault()}
           disabled={!inputText.trim() || !isPeerOnline || isSending || isDeclined}
           title="Send message (Enter)"
         >
@@ -675,19 +651,25 @@ export default function ChatPane({
       </div>
 
       {/* Modals */}
-      {previewFile && (
-        <FilePreviewModal
-          file={previewFile}
-          onConfirmSend={handleConfirmSendFile}
-          onClose={() => setPreviewFile(null)}
+      {cameraModalMode && (
+        <CameraCaptureModal
+          initialMode={cameraModalMode}
+          onSendMedia={handleConfirmSendCamera}
+          onClose={() => setCameraModalMode(null)}
         />
       )}
 
-      {cameraModalMode && (
-        <CameraCaptureModal
-          mode={cameraModalMode}
-          onSendMedia={handleConfirmSendCamera}
-          onClose={() => setCameraModalMode(null)}
+      {viewingMedia && (
+        <MediaViewerModal
+          media={viewingMedia}
+          onClose={() => setViewingMedia(null)}
+          onShowInFinder={handleShowInFolder}
+          onDownload={() => {
+            if (viewingMedia.transferId) {
+              const msg = messages.find((m) => m.attachment?.transferId === viewingMedia.transferId);
+              if (msg) handleDownloadAttachment(msg);
+            }
+          }}
         />
       )}
     </div>

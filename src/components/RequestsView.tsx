@@ -74,7 +74,7 @@ export default function RequestsView({
               <div className="request-card-header">
                 <div className="request-peer-info">
                   <div className="request-avatar">
-                    <Laptop style={{ width: 22, height: 22, color: '#38bdf8' }} />
+                    <Laptop style={{ width: 22, height: 22, color: '#B58AE8' }} />
                   </div>
                   <div className="request-meta">
                     <div className="request-name-row">

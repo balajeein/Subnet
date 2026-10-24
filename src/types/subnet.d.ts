@@ -164,6 +164,7 @@ export interface UserSettings {
   theme?: 'system' | 'dark' | 'light';
   notificationsEnabled?: boolean;
   soundEnabled?: boolean;
+  shareAvatarWithPeers?: boolean;
 }
 
 export interface SubnetAPI {
@@ -186,9 +187,17 @@ export interface SubnetAPI {
   getSettings: () => Promise<UserSettings>;
   updateSettings: (settings: Partial<UserSettings>) => Promise<UserSettings>;
   selectAvatarFile: () => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
+  getSystemAvatar: () => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
 
-  selectAttachmentFile: (type: 'all' | 'media') => Promise<{
+  selectAttachmentFile: (type?: 'all' | 'media') => Promise<{
     success: boolean;
+    files?: Array<{
+      filePath: string;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      thumbnail?: string;
+    }>;
     file?: {
       filePath: string;
       fileName: string;
@@ -196,6 +205,34 @@ export interface SubnetAPI {
       mimeType: string;
       thumbnail?: string;
     };
+    error?: string;
+  }>;
+  selectAttachmentFiles: (type?: 'all' | 'media') => Promise<{
+    success: boolean;
+    files?: Array<{
+      filePath: string;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      thumbnail?: string;
+    }>;
+    file?: {
+      filePath: string;
+      fileName: string;
+      fileSize: number;
+      mimeType: string;
+      thumbnail?: string;
+    };
+    error?: string;
+  }>;
+  checkMediaPermissions?: (type: 'camera' | 'microphone') => Promise<{
+    success: boolean;
+    status: 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown';
+    error?: string;
+  }>;
+  requestMediaPermissions?: (types: Array<'camera' | 'microphone'>) => Promise<{
+    success: boolean;
+    results: Record<string, boolean>;
     error?: string;
   }>;
   sendAttachment: (
@@ -222,6 +259,11 @@ export interface SubnetAPI {
   cancelTransfer: (transferId: string) => Promise<{ success: boolean; error?: string }>;
   showItemInFolder: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   openFile: (filePath: string) => Promise<{ success: boolean; error?: string }>;
+  saveFileAs?: (
+    sourcePath: string,
+    defaultName?: string
+  ) => Promise<{ success: boolean; canceled?: boolean; savedPath?: string; error?: string }>;
+  isElectron?: boolean;
   onTransferProgress?: (callback: (progress: FileTransferProgress) => void) => () => void;
 
   createPrivateRoom: (

@@ -32,7 +32,7 @@ export default function FilePreviewModal({
 
   const getFileIcon = () => {
     if (file.mimeType.startsWith('image/')) {
-      return <ImageIcon style={{ width: 28, height: 28, color: '#38bdf8' }} />;
+      return <ImageIcon style={{ width: 28, height: 28, color: '#B58AE8' }} />;
     }
     if (file.mimeType.startsWith('video/')) {
       return <Film style={{ width: 28, height: 28, color: '#f43f5e' }} />;
