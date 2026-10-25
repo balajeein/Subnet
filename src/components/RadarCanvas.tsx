@@ -295,14 +295,14 @@ export default function RadarCanvas({
               avatarType={settings.avatarType}
               avatarValue={settings.avatarValue}
               size={52}
-              name={localProfile?.name || 'Local Mac'}
-              alt={localProfile?.name || 'Local Mac'}
+              name={localProfile?.name || 'This device'}
+              alt={localProfile?.name || 'This device'}
               fallbackIconColor="#B58AE8"
             />
             <span className="radar-local-glow" />
           </div>
           <div className="radar-local-meta">
-            <span className="radar-local-name">{localProfile?.name || 'Local Mac'}</span>
+            <span className="radar-local-name">{localProfile?.name || 'This device'}</span>
             <span className="radar-local-tag">Your Device</span>
           </div>
         </div>

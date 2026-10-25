@@ -166,82 +166,82 @@ export default function AttachmentBubble({
   if (isMedia) {
     return (
       <div className={`media-bubble-wrap ${isMe ? 'outgoing' : 'incoming'}`}>
-        <div className="media-bubble-card">
-          {/* Top-Right WhatsApp-style action menu */}
-          <div className="media-top-action-bar" ref={menuRef}>
-            <button
-              type="button"
-              className={`media-menu-trigger-btn ${showMenu ? 'active' : ''}`}
-              onClick={(e) => {
-                e.stopPropagation();
-                setShowMenu((prev) => !prev);
-              }}
-              title="Media options"
-              aria-label="Media options"
-              aria-expanded={showMenu}
-            >
-              <ChevronDown style={{ width: 14, height: 14 }} />
-            </button>
+        {/* Keep media actions anchored to the message bubble, outside the clipped preview card. */}
+        <div className="media-top-action-bar" ref={menuRef}>
+          <button
+            type="button"
+            className={`media-menu-trigger-btn ${showMenu ? 'active' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowMenu((prev) => !prev);
+            }}
+            title="Media options"
+            aria-label="Media options"
+            aria-expanded={showMenu}
+          >
+            <ChevronDown style={{ width: 14, height: 14 }} />
+          </button>
 
-            {showMenu && (
-              <div className="media-dropdown-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+          {showMenu && (
+            <div className="media-dropdown-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+              <button
+                type="button"
+                className="media-dropdown-item"
+                role="menuitem"
+                onClick={handleDownloadOrSave}
+              >
+                <Download style={{ width: 14, height: 14 }} />
+                <span>{activeLocalPath ? 'Save As...' : 'Download'}</span>
+              </button>
+
+              {onViewMedia && (
                 <button
                   type="button"
                   className="media-dropdown-item"
                   role="menuitem"
-                  onClick={handleDownloadOrSave}
+                  onClick={(e) => {
+                    setShowMenu(false);
+                    handleMediaClick(e);
+                  }}
                 >
-                  <Download style={{ width: 14, height: 14 }} />
-                  <span>{activeLocalPath ? 'Save As...' : 'Download'}</span>
+                  <Maximize2 style={{ width: 14, height: 14 }} />
+                  <span>View Full Size</span>
                 </button>
+              )}
 
-                {onViewMedia && (
+              {activeLocalPath && (
+                <>
                   <button
                     type="button"
                     className="media-dropdown-item"
                     role="menuitem"
-                    onClick={(e) => {
+                    onClick={() => {
                       setShowMenu(false);
-                      handleMediaClick(e);
+                      onShowInFinder(activeLocalPath);
                     }}
                   >
-                    <Maximize2 style={{ width: 14, height: 14 }} />
-                    <span>View Full Size</span>
+                    <FolderOpen style={{ width: 14, height: 14 }} />
+                    <span>Show in Finder</span>
                   </button>
-                )}
+                  <button
+                    type="button"
+                    className="media-dropdown-item"
+                    role="menuitem"
+                    onClick={() => {
+                      setShowMenu(false);
+                      onOpenFile(activeLocalPath);
+                    }}
+                  >
+                    <ExternalLink style={{ width: 14, height: 14 }} />
+                    <span>Open in Default App</span>
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+        </div>
 
-                {activeLocalPath && (
-                  <>
-                    <button
-                      type="button"
-                      className="media-dropdown-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setShowMenu(false);
-                        onShowInFinder(activeLocalPath);
-                      }}
-                    >
-                      <FolderOpen style={{ width: 14, height: 14 }} />
-                      <span>Show in Finder</span>
-                    </button>
-                    <button
-                      type="button"
-                      className="media-dropdown-item"
-                      role="menuitem"
-                      onClick={() => {
-                        setShowMenu(false);
-                        onOpenFile(activeLocalPath);
-                      }}
-                    >
-                      <ExternalLink style={{ width: 14, height: 14 }} />
-                      <span>Open in Default App</span>
-                    </button>
-                  </>
-                )}
-              </div>
-            )}
-          </div>
-
+        <div className="media-bubble-card">
           {/* Media Content Area */}
           <div
             className={`media-viewport-container ${isCompleted ? 'clickable' : ''}`}
@@ -262,7 +262,8 @@ export default function AttachmentBubble({
             ) : isVideo && isCompleted && activeLocalPath ? (
               <video
                 src={mediaUrl}
-                controls
+                autoPlay
+                muted
                 playsInline
                 preload="metadata"
                 className="media-video-content"
@@ -295,9 +296,6 @@ export default function AttachmentBubble({
                 >
                   <Download style={{ width: 22, height: 22 }} />
                 </button>
-                <span className="media-overlay-size-tag">
-                  {formatFileSize(attachment.fileSize)}
-                </span>
               </div>
             )}
 
@@ -336,17 +334,11 @@ export default function AttachmentBubble({
             )}
           </div>
 
-          {/* Compact Metadata Footer */}
-          <div className="media-bubble-meta-row">
-            <span className="media-meta-filename" title={attachment.fileName}>
-              {attachment.fileName}
-            </span>
-            <span className="media-meta-dot">•</span>
-            <span className="media-meta-size">
-              {formatFileSize(attachment.fileSize)}
-            </span>
-            {saveStatus && <span className="media-save-status-pill">{saveStatus}</span>}
-          </div>
+          {saveStatus && (
+            <div className="media-bubble-meta-row">
+              <span className="media-save-status-pill">{saveStatus}</span>
+            </div>
+          )}
         </div>
       </div>
     );

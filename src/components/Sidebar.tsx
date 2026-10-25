@@ -522,7 +522,7 @@ export default function Sidebar({
       <div className="sidebar-footer">
         <div
           className={`sidebar-profile-node ${activeView.type === 'settings' ? 'active' : ''}`}
-          title={`${localProfile?.name || 'Local Device'} — Click to open Profile & Settings`}
+          title={`${localProfile?.name || 'This device'} — Click to open Profile & Settings`}
           role="button"
           tabIndex={0}
           onClick={onSelectSettings}
@@ -538,13 +538,13 @@ export default function Sidebar({
               avatarType={userSettings?.avatarType}
               avatarValue={userSettings?.avatarValue}
               size={26}
-              name={localProfile?.name || 'My Mac'}
-              alt={localProfile?.name || 'My Mac'}
+              name={localProfile?.name || 'This device'}
+              alt={localProfile?.name || 'This device'}
               fallbackIconColor="#B58AE8"
             />
           </div>
           <div className="profile-info">
-            <span className="profile-name">{localProfile?.name || 'My Mac'}</span>
+            <span className="profile-name">{localProfile?.name || 'This device'}</span>
             <span className="profile-tag">Profile</span>
           </div>
         </div>

@@ -48,6 +48,7 @@ export default function CameraCaptureModal({
   const [isSendingMedia, setIsSendingMedia] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
+  const recordedVideoRef = useRef<HTMLVideoElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
@@ -194,6 +195,24 @@ export default function CameraCaptureModal({
       stopTracks();
     };
   }, [currentMode]);
+
+  // Blob URLs can be created before the preview element has mounted. Reload and
+  // start playback once the recorded video has metadata available.
+  useEffect(() => {
+    const video = recordedVideoRef.current;
+    if (!recordedVideoUrl || !video) return;
+
+    const playPreview = () => {
+      video.currentTime = 0;
+      video.play().catch(() => {
+        // Native controls remain available when autoplay is blocked.
+      });
+    };
+
+    video.addEventListener('loadedmetadata', playPreview, { once: true });
+    video.load();
+    return () => video.removeEventListener('loadedmetadata', playPreview);
+  }, [recordedVideoUrl]);
 
   // Handle escape key to close
   useEffect(() => {
@@ -456,11 +475,14 @@ export default function CameraCaptureModal({
           ) : currentMode === 'video' && recordedVideoUrl ? (
             /* Video preview */
             <video
+              ref={recordedVideoRef}
               src={recordedVideoUrl}
               controls
               autoPlay
+              muted
               playsInline
-              className="camera-captured-preview"
+              preload="auto"
+              className="camera-captured-preview recorded-video-preview"
             />
           ) : (
             /* Live camera stream */

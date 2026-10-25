@@ -15,6 +15,9 @@ import {
   User,
   Eye,
   EyeOff,
+  // Sun,
+  // Moon,
+  // Monitor,
 } from 'lucide-react';
 import type { LocalProfile, UserSettings, NetworkStatus } from '../types/subnet';
 import { PRESET_AVATARS, getPresetAvatar } from '../utils/avatars';
@@ -135,6 +138,18 @@ export default function SettingsView({
     }
   };
 
+  /*
+  const handleThemeChange = async (theme: NonNullable<UserSettings['theme']>) => {
+    if (settings.theme === theme) return;
+    try {
+      await onUpdateSettings({ theme });
+      onShowToast(`${theme[0].toUpperCase()}${theme.slice(1)} theme enabled`);
+    } catch (err: any) {
+      onShowToast(err.message || 'Failed to update theme');
+    }
+  };
+  */
+
   const handleChooseFromMac = async () => {
     setAvatarError(null);
     try {
@@ -214,6 +229,7 @@ export default function SettingsView({
   };
 
   const currentPreset = settings.avatarType === 'preset' ? getPresetAvatar(settings.avatarValue) : null;
+  // const selectedTheme = settings.theme || 'system';
 
   const localIpDisplay = networkStatus?.localIp || 'Unavailable';
   const portDisplay = networkStatus?.port ? String(networkStatus.port) : 'Unavailable';
@@ -266,7 +282,7 @@ export default function SettingsView({
 
             <div className="profile-hero-info">
               <div className="profile-name-row">
-                <h2 className="profile-display-name">{localProfile?.name || 'Local Mac'}</h2>
+                <h2 className="profile-display-name">{localProfile?.name || 'This device'}</h2>
                 <span className="profile-device-badge">Device profile</span>
               </div>
               <p className="profile-identity-desc">
@@ -358,6 +374,38 @@ export default function SettingsView({
             )}
           </div>
         </div>
+
+        {/*
+        <div className="profile-card profile-theme-card">
+          <div className="profile-card-heading">
+            <div>
+              <h2 className="profile-card-title">Appearance</h2>
+              <p className="profile-card-subtitle">Choose how Subnet looks on this device.</p>
+            </div>
+          </div>
+
+          <div className="theme-options-grid" role="radiogroup" aria-label="Theme preference">
+            {([
+              { value: 'light', label: 'Light', description: 'Bright and airy', Icon: Sun },
+              { value: 'dark', label: 'Dark', description: 'Soft and low-light', Icon: Moon },
+              { value: 'system', label: 'System', description: 'Follow device setting', Icon: Monitor },
+            ] as const).map(({ value, label, description, Icon }) => (
+              <button
+                key={value}
+                type="button"
+                className={`theme-card-option ${selectedTheme === value ? 'selected' : ''}`}
+                onClick={() => handleThemeChange(value)}
+                role="radio"
+                aria-checked={selectedTheme === value}
+              >
+                <Icon style={{ width: 18, height: 18 }} aria-hidden="true" />
+                <span className="theme-card-name">{label}</span>
+                <span className="theme-card-desc">{description}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+        */}
 
         {/* Technical Details Collapsible Card */}
         <div className="profile-card technical-details-card">

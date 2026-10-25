@@ -591,7 +591,9 @@ export default function RoomChatPane({
                     {isHost && <span className="room-message-host-tag">Host</span>}
                   </div>
                 )}
-                <div className={`room-message-bubble ${isSelf ? 'outgoing' : 'incoming'}`}>
+                <div
+                  className={`room-message-bubble ${isSelf ? 'outgoing' : 'incoming'} ${msg.attachment ? 'has-attachment' : ''}`}
+                >
                   {msg.attachment && (
                     <AttachmentBubble
                       attachment={msg.attachment}

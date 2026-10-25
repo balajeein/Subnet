@@ -357,7 +357,7 @@ export default function ChatPane({
             <div className="chat-status-line">
               <span className={`status-dot ${isPeerOnline ? 'active' : ''}`} />
               <span className="chat-status-text">
-                {isPeerOnline ? 'LAN Connected' : 'Disconnected from LAN'}
+                {isPeerOnline ? 'LAN Connected' : 'Disconnected'}
               </span>
             </div>
           </div>
@@ -461,7 +461,9 @@ export default function ChatPane({
                 className={`message-row ${isMe ? 'outgoing' : 'incoming'} ${isConsecutive ? 'consecutive' : ''
                   }`}
               >
-                <div className={`message-bubble ${isMe ? 'bubble-me' : 'bubble-peer'}`}>
+                <div
+                  className={`message-bubble ${isMe ? 'bubble-me' : 'bubble-peer'} ${msg.attachment ? 'has-attachment' : ''}`}
+                >
                   {msg.attachment && (
                     <AttachmentBubble
                       attachment={msg.attachment}
