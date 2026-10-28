@@ -4,6 +4,7 @@ import os from 'os';
 import crypto from 'crypto';
 import { AddressInfo } from 'net';
 import { BonjourDiscovery } from './bonjour-discovery';
+import { UdpDiscovery } from './udp-discovery';
 import { PeerConnection } from './peer-connection';
 import {
   isPeerIdTieWinner,
@@ -30,7 +31,7 @@ import {
   FileCompletePayload,
   FileCancelPayload,
 } from './protocol';
-import { ChatStore, StoredRoom, RoomMember, UserSettings } from '../store/chat-store';
+import { ChatStore, StoredRoom, RoomMember, UserSettings, OutboxEntry } from '../store/chat-store';
 import { FileTransferManager, TransferProgressEvent } from './transfer-manager';
 import type {
   LocalProfile,
@@ -47,13 +48,38 @@ import type {
   DiscoveredRoom,
 } from '../../src/types/subnet';
 
+type DiscoverySource = 'bonjour' | 'udp';
+type LocalNetwork = { address: string; netmask: string };
+
 export class ConnectionManager extends EventEmitter {
   private localProfile: LocalProfile;
   private wss: WebSocketServer | null = null;
+  private fileWss: WebSocketServer | null = null;
   private bonjour: BonjourDiscovery | null = null;
+  private udpDiscovery: UdpDiscovery | null = null;
   private port = 0;
+  private filePort = 0;
+  private preferredPort = 50000;
+  private portMode: 'fixed' | 'fallback' | 'ephemeral' = 'ephemeral';
   private localIp = '127.0.0.1';
+  private localNetworks: LocalNetwork[] = [];
   private isRunning = false;
+  private networkRefreshTimer: NodeJS.Timeout | null = null;
+  private readonly reconnectTimers = new Map<string, NodeJS.Timeout>();
+  private readonly reconnectAttempts = new Map<string, number>();
+  private readonly reconnectBaseDelayMs = 1000;
+  private readonly reconnectMaxDelayMs = 30000;
+  private readonly networkRefreshIntervalMs = 5000;
+  // Synthetic managers in the Node test suite share one host and one LAN. Keep
+  // the real discovery transports isolated there so one test cannot discover
+  // managers created by another test case.
+  private readonly udpDiscoveryEnabled = process.env.NODE_ENV !== 'test';
+  private outboxRetryTimer: NodeJS.Timeout | null = null;
+  private readonly outboxRetryIntervalMs = 1500;
+  private readonly pendingFileRequests = new Map<
+    string,
+    { recipientId: string; expiresAt: number }
+  >();
 
   // Persistence store
   private chatStore: ChatStore;
@@ -69,6 +95,9 @@ export class ConnectionManager extends EventEmitter {
 
   // Discovered peers from Bonjour: peerId -> Peer
   private discoveredPeers: Map<string, Peer> = new Map();
+  // A peer can be visible through Bonjour, UDP, or both. Only remove it after
+  // every active discovery source has stopped reporting it.
+  private peerDiscoverySources: Map<string, Set<DiscoverySource>> = new Map();
 
   // Discovered anonymous rooms from Bonjour: roomId -> DiscoveredRoom
   private discoveredRooms: Map<string, DiscoveredRoom> = new Map();
@@ -147,10 +176,22 @@ export class ConnectionManager extends EventEmitter {
       return this.getNetworkStatus();
     }
 
-    this.localIp = this.detectLocalIpAddress();
+    this.localNetworks = this.detectLocalNetworks();
+    const localNetwork = this.localNetworks[0] || { address: '127.0.0.1', netmask: '255.0.0.0' };
+    this.localIp = localNetwork.address;
 
-    // 1. Initialize WebSocket Server on an OS-assigned ephemeral port (port: 0)
-    await this.startWebSocketServer();
+    const configuredPort = this.chatStore.getSettings().listeningPort;
+    this.preferredPort = process.env.NODE_ENV === 'test'
+      ? 0
+      : normalizeListeningPort(configuredPort) || 50000;
+
+    // Keep the control socket predictable for firewall rules and diagnostics.
+    // If another local Subnet instance already owns the preferred port, fall
+    // back to an ephemeral port rather than preventing the app from starting.
+    await this.startWebSocketServer(this.preferredPort);
+    this.localProfile.filePort = await this.startFileTransferServer(
+      this.preferredPort > 0 ? this.preferredPort + 1 : 0
+    );
 
     console.log(
       `[Subnet:Connection] WebSocket server listening on ${this.localIp}:${this.port} (instance: ${this.localProfile.name}, peerId: ${this.localProfile.id.slice(0, 8)})`
@@ -161,47 +202,112 @@ export class ConnectionManager extends EventEmitter {
       localPeerId: this.localProfile.id,
       displayName: this.localProfile.name,
       port: this.port,
+      filePort: this.filePort,
       discoverable: this.chatStore.getSettings().peopleCanFindMe !== false,
     });
 
     await this.bonjour.start(
-      (peer: Peer) => this.handlePeerDiscovered(peer),
-      (peerId: string) => this.handlePeerLost(peerId),
+      (peer: Peer) => this.handlePeerDiscovered(peer, 'bonjour'),
+      (peerId: string) => this.handlePeerLost(peerId, 'bonjour'),
       (room: DiscoveredRoom) => this.handleRoomDiscovered(room),
       (roomId: string) => this.handleRoomLost(roomId)
     );
 
+    // Bonjour is excellent when mDNS multicast is available, but managed
+    // networks often suppress mDNS while still allowing direct LAN traffic.
+    // UDP multicast plus subnet broadcast provides a discovery fallback.
+    if (this.udpDiscoveryEnabled) {
+      this.udpDiscovery = new UdpDiscovery({
+        localPeerId: this.localProfile.id,
+        displayName: this.localProfile.name,
+        localIp: localNetwork.address,
+        netmask: localNetwork.netmask,
+        localNetworks: this.localNetworks,
+        port: this.port,
+        filePort: this.filePort,
+        discoverable: this.chatStore.getSettings().peopleCanFindMe !== false,
+      });
+      await this.udpDiscovery.start(
+        (peer: Peer) => this.handlePeerDiscovered(peer, 'udp'),
+        (peerId: string) => this.handlePeerLost(peerId, 'udp')
+      );
+    }
+
     this.isRunning = true;
+    this.startOutboxRetryLoop();
+    void this.flushOutbox();
+    if (this.udpDiscoveryEnabled) {
+      this.networkRefreshTimer = setInterval(
+        () => this.refreshLocalNetworks(),
+        this.networkRefreshIntervalMs
+      );
+    }
     this.emitStatusChanged();
 
     return this.getNetworkStatus();
   }
 
-  private startWebSocketServer(): Promise<void> {
+  private startWebSocketServer(preferredPort: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      try {
-        this.wss = new WebSocketServer({
-          port: 0, // OS selects free ephemeral port
-          maxPayload: MAX_MESSAGE_SIZE,
-        });
-
-        this.wss.on('listening', () => {
-          const addr = this.wss?.address() as AddressInfo;
-          this.port = addr.port;
+      let fallbackUsed = false;
+      const bind = (port: number, allowFallback: boolean) => {
+        const server = new WebSocketServer({ port, maxPayload: MAX_MESSAGE_SIZE });
+        let settled = false;
+        server.once('listening', () => {
+          settled = true;
+          this.wss = server;
+          this.port = (server.address() as AddressInfo).port;
+          this.portMode = port === 0 ? (fallbackUsed ? 'fallback' : 'ephemeral') : 'fixed';
           resolve();
         });
-
-        this.wss.on('connection', (socket: WebSocket) => {
-          this.handleInboundSocket(socket);
+        server.on('connection', (socket: WebSocket) => this.handleInboundSocket(socket));
+        server.on('error', (err: NodeJS.ErrnoException) => {
+          if (!settled && allowFallback && err.code === 'EADDRINUSE') {
+            settled = true;
+            fallbackUsed = true;
+            console.warn(`[Subnet:Connection] Port ${port} is busy; falling back to an OS-assigned port.`);
+            server.close(() => bind(0, false));
+            return;
+          }
+          if (!settled) {
+            settled = true;
+            reject(err);
+          } else {
+            console.error(`[Subnet:Connection] WebSocket server error:`, err);
+          }
         });
+      };
+      bind(preferredPort, preferredPort > 0);
+    });
+  }
 
-        this.wss.on('error', (err) => {
-          console.error(`[Subnet:Connection] WebSocket server error:`, err);
-          reject(err);
+  private startFileTransferServer(preferredPort: number): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const bind = (port: number, allowFallback: boolean) => {
+        const server = new WebSocketServer({ port, maxPayload: 128 * 1024 });
+        let settled = false;
+        server.once('listening', () => {
+          settled = true;
+          this.fileWss = server;
+          resolve((server.address() as AddressInfo).port);
         });
-      } catch (err) {
-        reject(err);
-      }
+        server.on('connection', (socket: WebSocket) => this.handleInboundFileSocket(socket));
+        server.on('error', (err: NodeJS.ErrnoException) => {
+          if (!settled && allowFallback && err.code === 'EADDRINUSE') {
+            settled = true;
+            console.warn(`[Subnet:Transfer] File port ${port} is busy; using an OS-assigned port.`);
+            server.close(() => bind(0, false));
+            return;
+          }
+          if (!settled) {
+            settled = true;
+            reject(err);
+          } else {
+            console.error(`[Subnet:Transfer] File server error:`, err);
+          }
+        });
+      };
+      bind(preferredPort, preferredPort > 0);
     });
   }
 
@@ -257,6 +363,7 @@ export class ConnectionManager extends EventEmitter {
         }
       }
 
+      this.clearReconnect(remotePeerId);
       this.activeConnections.set(remotePeerId, conn);
 
       // Cache peer avatar and display name
@@ -283,6 +390,7 @@ export class ConnectionManager extends EventEmitter {
 
       this.attachConnectionListeners(remotePeerId, conn);
       this.syncClosedRoomsToPeer(conn);
+      void this.flushOutboxForPeer(remotePeerId);
       this.emit('peer-connected', remotePeerId);
     });
 
@@ -294,6 +402,7 @@ export class ConnectionManager extends EventEmitter {
           this.emit('peer-disconnected', closedPeerId);
           this.checkHostOfflineForRooms(closedPeerId);
           this.transferManager.cancelTransfersForPeer(closedPeerId, 'Peer disconnected from network');
+          this.scheduleReconnect(closedPeerId);
         }
       }
     });
@@ -358,6 +467,7 @@ export class ConnectionManager extends EventEmitter {
 
       conn.on('connected', (remotePeer) => {
         this.pendingOutbound.delete(peerId);
+        this.clearReconnect(peerId);
 
         const currentActive = this.activeConnections.get(peerId);
         if (currentActive && currentActive !== conn) {
@@ -402,6 +512,7 @@ export class ConnectionManager extends EventEmitter {
 
         this.attachConnectionListeners(peerId, conn);
         this.syncClosedRoomsToPeer(conn);
+        void this.flushOutboxForPeer(peerId);
         console.log(
           `[Subnet:Connection] Outbound connection verified and active for target "${displayName || peerId.slice(0, 8)}"`
         );
@@ -415,6 +526,10 @@ export class ConnectionManager extends EventEmitter {
           this.emit('peer-disconnected', peerId);
           this.checkHostOfflineForRooms(peerId);
         }
+        // This also covers an outbound handshake that failed before becoming
+        // active. Discovery is still authoritative that the peer exists, so
+        // keep retrying with backoff instead of waiting for a new announcement.
+        this.scheduleReconnect(peerId);
       });
 
       conn.on('error', (err) => {
@@ -422,6 +537,7 @@ export class ConnectionManager extends EventEmitter {
           `[Subnet:Connection] Outbound socket error for target "${displayName || peerId.slice(0, 8)}": ${err.message}`
         );
         this.pendingOutbound.delete(peerId);
+        this.scheduleReconnect(peerId);
       });
 
       return conn;
@@ -463,6 +579,61 @@ export class ConnectionManager extends EventEmitter {
     }
     const active = this.activeConnections.get(peerId);
     return active && active.state === 'connected' ? active : null;
+  }
+
+  private startOutboxRetryLoop(): void {
+    if (this.outboxRetryTimer) return;
+    this.outboxRetryTimer = setInterval(() => {
+      void this.flushOutbox();
+    }, this.outboxRetryIntervalMs);
+  }
+
+  private async flushOutbox(): Promise<void> {
+    if (!this.isRunning) return;
+    const now = Date.now();
+    const entries = this.chatStore.getOutbox().filter((entry) => entry.nextAttemptAt <= now);
+    for (const entry of entries) {
+      await this.attemptOutboxEntry(entry);
+    }
+  }
+
+  private async flushOutboxForPeer(peerId: string): Promise<void> {
+    if (!this.isRunning) return;
+    const now = Date.now();
+    const entries = this.chatStore
+      .getOutbox()
+      .filter((entry) => entry.kind === 'direct' && entry.recipientId === peerId && entry.nextAttemptAt <= now);
+    for (const entry of entries) {
+      await this.attemptOutboxEntry(entry);
+    }
+  }
+
+  private async attemptOutboxEntry(entry: OutboxEntry): Promise<void> {
+    if (entry.kind !== 'direct' || !entry.recipientId) {
+      this.chatStore.removeOutbox(entry.id);
+      return;
+    }
+
+    const connection = await this.ensureActiveConnection(entry.recipientId);
+    if (connection && connection.state === 'connected') {
+      const sent = connection.sendEnvelope(entry.payload as unknown as MessagePayload);
+      if (sent) {
+        this.chatStore.updateOutbox(entry.id, {
+          attempts: entry.attempts + 1,
+          nextAttemptAt: Date.now() + 5000,
+          lastError: undefined,
+        });
+        return;
+      }
+    }
+
+    const attempts = entry.attempts + 1;
+    const retryDelay = Math.min(30_000, 1000 * 2 ** Math.min(attempts, 5));
+    this.chatStore.updateOutbox(entry.id, {
+      attempts,
+      nextAttemptAt: Date.now() + retryDelay,
+      lastError: 'Peer is temporarily unreachable; retrying when the connection returns',
+    });
   }
 
   private checkHostOfflineForRooms(peerId: string): void {
@@ -507,22 +678,21 @@ export class ConnectionManager extends EventEmitter {
 
     const currentConn = this.activeConnections.get(trimmedRecipient);
     const peer = this.discoveredPeers.get(trimmedRecipient);
-    if (!peer && (!currentConn || currentConn.state !== 'connected')) {
+    let conv = this.chatStore.getConversation(trimmedRecipient);
+    const isAccepted = conv?.status === 'accepted';
+    if (!peer && (!currentConn || currentConn.state !== 'connected') && !isAccepted) {
       return { success: false, error: 'User is not discovered or offline on local network' };
     }
     const peerDisplayName = peer?.name || currentConn?.remotePeer?.name || 'Nearby Peer';
-
-    const activeConn = await this.ensureActiveConnection(trimmedRecipient);
-    if (!activeConn) {
-      return { success: false, error: 'Failed to establish connection to user on LAN' };
-    }
-
-    let conv = this.chatStore.getConversation(trimmedRecipient);
 
     // Auto-accept pending direct invitation if the user explicitly initiates a reply/message
     const pendingInv = conv?.pendingInvitation;
 
     if (pendingInv && conv?.status === 'pending_incoming') {
+      const activeConn = await this.ensureActiveConnection(trimmedRecipient);
+      if (!activeConn) {
+        return { success: false, error: 'Failed to establish connection to user on LAN' };
+      }
       console.log(
         `[Subnet:Message] Auto-accepting pending invitation ${pendingInv.id.slice(0, 8)} from ${trimmedRecipient.slice(0, 8)} upon reply`
       );
@@ -533,11 +703,15 @@ export class ConnectionManager extends EventEmitter {
       conv = this.chatStore.getConversation(trimmedRecipient);
     }
 
-    const isAccepted = conv && conv.status === 'accepted';
+    const acceptedConversation = conv?.status === 'accepted';
 
-    if (!isAccepted) {
+    if (!acceptedConversation) {
+      const activeConn = await this.ensureActiveConnection(trimmedRecipient);
+      if (!activeConn) {
+        return { success: false, error: 'Failed to establish connection to user on LAN' };
+      }
       if (conv?.status === 'pending_outgoing' && conv.pendingInvitation) {
-      return { success: false, error: 'A chat invitation is already pending for this user' };
+        return { success: false, error: 'A chat invitation is already pending for this user' };
       }
 
       const invitationId = crypto.randomUUID();
@@ -588,11 +762,6 @@ export class ConnectionManager extends EventEmitter {
       timestamp: Date.now(),
     };
 
-    const sent = activeConn.sendEnvelope(envelope);
-    if (!sent) {
-      return { success: false, error: 'Socket error: failed to transmit message packet' };
-    }
-
     const message: Message = {
       id: messageId,
       senderId: this.localProfile.id,
@@ -606,10 +775,25 @@ export class ConnectionManager extends EventEmitter {
     };
 
     this.chatStore.addMessage(trimmedRecipient, message, false, peerDisplayName);
+    this.chatStore.enqueueOutbox({
+      id: messageId,
+      kind: 'direct',
+      recipientId: trimmedRecipient,
+      payload: envelope as unknown as Record<string, unknown>,
+      localAttachmentPath,
+      attempts: 0,
+      nextAttemptAt: Date.now(),
+      createdAt: Date.now(),
+    });
     this.emit('conversations-updated', this.chatStore.getConversations());
 
+    // Sending is durable: if the socket is down now, the retry worker will
+    // deliver the same message ID after discovery/reconnect and the receiver's
+    // existing deduplication/ack path keeps it from appearing twice.
+    void this.flushOutboxForPeer(trimmedRecipient);
+
     console.log(
-      `[Subnet:Message] Dispatched message ${messageId.slice(0, 8)} to peer "${peerDisplayName}" (${trimmedRecipient.slice(0, 8)})`
+      `[Subnet:Message] Queued message ${messageId.slice(0, 8)} for peer "${peerDisplayName}" (${trimmedRecipient.slice(0, 8)})`
     );
 
     return { success: true, messageId };
@@ -1343,6 +1527,7 @@ export class ConnectionManager extends EventEmitter {
         }
 
         this.chatStore.updateMessageStatus(envelope.senderId, envelope.messageId, 'delivered');
+        this.chatStore.removeOutbox(envelope.messageId);
 
         const ack: MessageAck = {
           messageId: envelope.messageId,
@@ -1842,7 +2027,16 @@ export class ConnectionManager extends EventEmitter {
     this.receivedMessageIds.add(messageId);
   }
 
-  private handlePeerDiscovered(peer: Peer): void {
+  private handlePeerDiscovered(peer: Peer, source?: DiscoverySource): void {
+    if (source) {
+      let sources = this.peerDiscoverySources.get(peer.id);
+      if (!sources) {
+        sources = new Set<DiscoverySource>();
+        this.peerDiscoverySources.set(peer.id, sources);
+      }
+      sources.add(source);
+    }
+
     const isNew = !this.discoveredPeers.has(peer.id);
     const existing = this.discoveredPeers.get(peer.id);
     const cachedAvatar = this.chatStore.getPeerAvatar(peer.id);
@@ -1868,13 +2062,30 @@ export class ConnectionManager extends EventEmitter {
       this.connectToPeer(peer.id).catch((err) => {
         console.log(`[Subnet:Connection] Initial connection attempt error: ${err.message}`);
       });
+    } else if (
+      this.isRunning &&
+      !this.isPeerConnected(peer.id) &&
+      !this.pendingOutbound.has(peer.id)
+    ) {
+      // Discovery can outlive a WebSocket. Re-open the session even when the
+      // peer announcement itself has not changed.
+      this.scheduleReconnect(peer.id, 0);
     }
 
     this.emit('peer-discovered', mergedPeer);
     this.emitStatusChanged();
   }
 
-  private handlePeerLost(peerId: string): void {
+  private handlePeerLost(peerId: string, source?: DiscoverySource): void {
+    if (source) {
+      const sources = this.peerDiscoverySources.get(peerId);
+      sources?.delete(source);
+      if (sources && sources.size > 0) {
+        return;
+      }
+      this.peerDiscoverySources.delete(peerId);
+    }
+
     const existing = this.discoveredPeers.get(peerId);
     console.log(
       `[Subnet:Peer] Peer lost from LAN: "${existing?.name || 'unknown'}" (${peerId.slice(0, 8)})`
@@ -1895,6 +2106,7 @@ export class ConnectionManager extends EventEmitter {
     }
 
     this.checkHostOfflineForRooms(peerId);
+    this.clearReconnect(peerId);
 
     this.emit('peer-lost', peerId);
     this.emitStatusChanged();
@@ -1905,11 +2117,49 @@ export class ConnectionManager extends EventEmitter {
   }
 
   public getNetworkStatus(): NetworkStatus {
+    const interfaces = this.localNetworks.map((network) => network.address);
+    const broadcasts = this.udpDiscovery?.getBroadcastAddresses() || [];
+    const firewallHints: string[] = [];
+    if (this.portMode === 'fallback') {
+      firewallHints.push(`Preferred port ${this.preferredPort} was busy; this instance is using port ${this.port}.`);
+    }
+    if (interfaces.length === 0) {
+      firewallHints.push('No active IPv4 network interface is available for local discovery.');
+    }
+    if (!this.bonjour && this.isRunning) {
+      firewallHints.push('Bonjour discovery is unavailable; check macOS Local Network permission for Subnet.');
+    }
+    if (!this.udpDiscovery && this.isRunning && this.udpDiscoveryEnabled) {
+      firewallHints.push('UDP discovery is unavailable; check firewall rules for UDP port 50000.');
+    }
+    const discoveryError = this.bonjour?.getLastError() || this.udpDiscovery?.getLastError();
+    if (discoveryError) {
+      firewallHints.push(`Discovery reported: ${discoveryError}`);
+    }
+    if (this.isRunning && this.discoveredPeers.size === 0) {
+      firewallHints.push('If another user is missing, allow Subnet through the macOS firewall and avoid guest Wi-Fi isolation.');
+    }
     return {
       isRunning: this.isRunning,
       port: this.port || undefined,
+      filePort: this.filePort || undefined,
+      preferredPort: this.preferredPort || undefined,
+      portMode: this.portMode,
       peerCount: this.discoveredPeers.size,
+      connectedPeerCount: Array.from(this.activeConnections.values()).filter(
+        (connection) => connection.state === 'connected'
+      ).length,
       localIp: this.localIp,
+      discovery: {
+        bonjour: this.bonjour ? 'active' : (this.isRunning ? 'unavailable' : 'disabled'),
+        udp: this.udpDiscoveryEnabled
+          ? (this.udpDiscovery?.isRunning() ? 'active' : (this.isRunning ? 'unavailable' : 'disabled'))
+          : 'disabled',
+        interfaces,
+        broadcasts,
+        lastError: discoveryError,
+      },
+      firewallHints,
     };
   }
 
@@ -1952,6 +2202,7 @@ export class ConnectionManager extends EventEmitter {
     const updated = this.chatStore.updateSettings(partial);
     if (partial.peopleCanFindMe !== undefined) {
       void this.bonjour?.setDiscoverable(updated.peopleCanFindMe !== false);
+      this.udpDiscovery?.setDiscoverable(updated.peopleCanFindMe !== false);
     }
     if (partial.avatarType !== undefined || partial.avatarValue !== undefined || partial.shareAvatarWithPeers !== undefined) {
       const avatarToBroadcast: ProfileAvatarMetadata =
@@ -2058,6 +2309,20 @@ export class ConnectionManager extends EventEmitter {
     console.log(`[Subnet:Connection] Stopping networking core...`);
     this.isRunning = false;
 
+    if (this.networkRefreshTimer) {
+      clearInterval(this.networkRefreshTimer);
+      this.networkRefreshTimer = null;
+    }
+    if (this.outboxRetryTimer) {
+      clearInterval(this.outboxRetryTimer);
+      this.outboxRetryTimer = null;
+    }
+    for (const timer of this.reconnectTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.reconnectTimers.clear();
+    this.reconnectAttempts.clear();
+
     for (const [roomId, pending] of this.pendingRoomJoins.entries()) {
       clearTimeout(pending.timer);
       pending.resolve({ success: false, error: 'Subnet shutting down' });
@@ -2074,6 +2339,11 @@ export class ConnectionManager extends EventEmitter {
     }
     this.pendingOutbound.clear();
 
+    if (this.udpDiscovery) {
+      await this.udpDiscovery.stop();
+      this.udpDiscovery = null;
+    }
+
     if (this.bonjour) {
       await this.bonjour.stop();
       this.bonjour = null;
@@ -2086,8 +2356,21 @@ export class ConnectionManager extends EventEmitter {
       this.wss = null;
     }
 
+    if (this.fileWss) {
+      await new Promise<void>((resolve) => {
+        this.fileWss?.close(() => resolve());
+      });
+      this.fileWss = null;
+    }
+
     this.discoveredPeers.clear();
+    this.peerDiscoverySources.clear();
     this.discoveredRooms.clear();
+    this.pendingFileRequests.clear();
+    this.port = 0;
+    this.filePort = 0;
+    this.localProfile.filePort = undefined;
+    this.portMode = 'ephemeral';
     this.emitStatusChanged();
   }
 
@@ -2110,6 +2393,17 @@ export class ConnectionManager extends EventEmitter {
         recipientId: envelope.senderId,
         reason: 'File no longer available',
         timestamp: Date.now(),
+      });
+      return;
+    }
+
+    if (conn.remotePeer?.filePort && envelope.transport !== 'control') {
+      // The requester will open the dedicated binary socket next. Keeping the
+      // request short-lived prevents an unrelated client from pulling a file
+      // without first proving it has an active control connection.
+      this.pendingFileRequests.set(envelope.transferId, {
+        recipientId: envelope.senderId,
+        expiresAt: Date.now() + 15_000,
       });
       return;
     }
@@ -2138,6 +2432,193 @@ export class ConnectionManager extends EventEmitter {
         reason: err.message || 'Stream transmission failed',
         timestamp: Date.now(),
       });
+    }
+  }
+
+  private handleInboundFileSocket(socket: WebSocket): void {
+    let request:
+      | { transferId: string; recipientId: string; startIndex?: number }
+      | undefined;
+    const requestTimer = setTimeout(() => socket.close(4008, 'File request timed out'), 6000);
+
+    socket.on('message', async (raw: any, isBinary: boolean) => {
+      if (request) return;
+      if (isBinary) {
+        socket.close(4003, 'File request must be JSON');
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(raw.toString()) as {
+          type?: string;
+          transferId?: string;
+          recipientId?: string;
+          startIndex?: number;
+        };
+        if (
+          parsed.type !== 'file_stream_request' ||
+          typeof parsed.transferId !== 'string' ||
+          typeof parsed.recipientId !== 'string'
+        ) {
+          socket.close(4003, 'Invalid file request');
+          return;
+        }
+
+        const pending = this.pendingFileRequests.get(parsed.transferId);
+        if (!pending || pending.expiresAt < Date.now() || pending.recipientId !== parsed.recipientId) {
+          socket.close(4003, 'File request was not authorized');
+          return;
+        }
+        this.pendingFileRequests.delete(parsed.transferId);
+        request = {
+          transferId: parsed.transferId,
+          recipientId: parsed.recipientId,
+          startIndex: Number.isInteger(parsed.startIndex) ? parsed.startIndex : 0,
+        };
+        clearTimeout(requestTimer);
+
+        const outbound = this.transferManager.getOutboundTransfer(request.transferId);
+        if (!outbound) {
+          socket.close(4004, 'File is no longer available');
+          return;
+        }
+
+        await this.transferManager.streamFileBinary(
+          request.transferId,
+          async (chunk, chunkIndex, totalChunks) => {
+            if (chunkIndex < (request?.startIndex || 0)) return true;
+            if (socket.readyState !== WebSocket.OPEN) return false;
+            const frame = Buffer.allocUnsafe(4 + chunk.length);
+            frame.writeUInt32BE(chunkIndex, 0);
+            chunk.copy(frame, 4);
+            return new Promise<boolean>((resolve) => {
+              socket.send(frame, (error) => resolve(!error));
+            });
+          },
+          () => socket.readyState === WebSocket.OPEN
+        );
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({ type: 'file_stream_complete', transferId: request!.transferId }));
+          socket.close(1000, 'File transfer complete');
+        }
+      } catch (err: any) {
+        clearTimeout(requestTimer);
+        console.error(`[Subnet:Transfer] Binary file stream failed:`, err);
+        if (socket.readyState === WebSocket.OPEN) {
+          socket.send(JSON.stringify({
+            type: 'file_stream_error',
+            transferId: request?.transferId,
+            error: err.message || 'Binary file stream failed',
+          }));
+          socket.close(1011, 'File transfer failed');
+        }
+      }
+    });
+    socket.on('close', () => clearTimeout(requestTimer));
+    socket.on('error', () => clearTimeout(requestTimer));
+  }
+
+  private startBinaryFileDownload(
+    transferId: string,
+    targetPeerId: string,
+    host: string,
+    filePort: number,
+    controlConnection: PeerConnection
+  ): void {
+    const socket = new WebSocket(`ws://${host}:${filePort}`, { maxPayload: 128 * 1024 });
+    let receivedComplete = false;
+    let fallbackRequested = false;
+
+    const requestControlFallback = (reason: string): void => {
+      if (receivedComplete || fallbackRequested || controlConnection.state !== 'connected') return;
+      fallbackRequested = true;
+      console.warn(`[Subnet:Transfer] Falling back to control channel for ${transferId}: ${reason}`);
+      controlConnection.sendEnvelope({
+        type: 'file_request',
+        transferId,
+        senderId: this.localProfile.id,
+        recipientId: targetPeerId,
+        transport: 'control',
+        timestamp: Date.now(),
+      });
+    };
+
+    socket.once('open', () => {
+      socket.send(JSON.stringify({
+        type: 'file_stream_request',
+        transferId,
+        recipientId: this.localProfile.id,
+        startIndex: 0,
+      }));
+    });
+
+    socket.on('message', async (raw: any, isBinary: boolean) => {
+      if (isBinary) {
+        const frame = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
+        if (frame.length < 4) return;
+        const chunkIndex = frame.readUInt32BE(0);
+        const result = await this.transferManager.handleIncomingBinaryChunk(
+          transferId,
+          chunkIndex,
+          this.chatStore.findMessageByTransferId(transferId)?.message.attachment?.totalChunks || 0,
+          frame.subarray(4)
+        );
+        if (result.completed && !result.success) {
+          this.transferManager.cancelTransfer(transferId, result.error || 'File integrity check failed');
+          socket.close(1011, result.error || 'File transfer failed');
+        } else if (result.completed && result.success && result.finalPath) {
+          receivedComplete = true;
+          this.markAttachmentDownloaded(transferId, result.finalPath);
+        }
+        return;
+      }
+
+      try {
+        const event = JSON.parse(raw.toString()) as { type?: string; error?: string };
+        if (event.type === 'file_stream_complete') {
+          // The receiver finalizes after the last binary frame; this message is
+          // only a transport-level completion marker.
+          if (!receivedComplete) {
+            const inbound = this.transferManager.getInboundTransfer(transferId);
+            if (inbound?.isCompleted) {
+              receivedComplete = true;
+              this.markAttachmentDownloaded(transferId, inbound.finalPath);
+            }
+          }
+          socket.close(1000, 'File transfer complete');
+        } else if (event.type === 'file_stream_error') {
+          throw new Error(event.error || 'Binary file transfer failed');
+        }
+      } catch (err: any) {
+        this.transferManager.cancelTransfer(transferId, err.message || 'Binary file transfer failed');
+        socket.close(1011, err.message || 'File transfer failed');
+      }
+    });
+
+    socket.once('error', (error) => {
+      if (!receivedComplete) {
+        console.warn(`[Subnet:Transfer] Binary channel failed for ${transferId}: ${error.message}`);
+        requestControlFallback(error.message);
+      }
+    });
+    socket.once('close', () => requestControlFallback('binary socket closed before completion'));
+  }
+
+  private markAttachmentDownloaded(transferId: string, finalPath: string): void {
+    const found = this.chatStore.findMessageByTransferId(transferId);
+    if (!found) return;
+    if (found.peerId) {
+      this.chatStore.updateMessageAttachment(found.peerId, found.message.id, {
+        localAttachmentPath: finalPath,
+        transferStatus: 'downloaded',
+      });
+      this.emit('conversations-updated', this.chatStore.getConversations());
+    } else if (found.roomId) {
+      this.chatStore.updateRoomMessageAttachment(found.roomId, found.message.id, {
+        localAttachmentPath: finalPath,
+        transferStatus: 'downloaded',
+      });
+      this.emit('rooms-updated', this.chatStore.getRooms(this.localProfile.id));
     }
   }
 
@@ -2228,6 +2709,7 @@ export class ConnectionManager extends EventEmitter {
       transferId,
       senderId: this.localProfile.id,
       recipientId: targetPeerId,
+      transport: conn.remotePeer?.filePort ? 'binary' : 'control',
       timestamp: Date.now(),
     };
 
@@ -2247,6 +2729,17 @@ export class ConnectionManager extends EventEmitter {
         transferStatus: 'transferring',
       });
       this.emit('rooms-updated', this.chatStore.getRooms(this.localProfile.id));
+    }
+
+    const targetPeer = this.discoveredPeers.get(targetPeerId);
+    if (conn.remotePeer?.filePort && targetPeer?.host) {
+      this.startBinaryFileDownload(
+        transferId,
+        targetPeerId,
+        targetPeer.host,
+        conn.remotePeer.filePort,
+        conn
+      );
     }
 
     return { success: true };
@@ -2348,17 +2841,93 @@ export class ConnectionManager extends EventEmitter {
     }
   }
 
-  private detectLocalIpAddress(): string {
+  private detectLocalNetworks(): LocalNetwork[] {
     const interfaces = os.networkInterfaces();
+    const networks: LocalNetwork[] = [];
+    const seen = new Set<string>();
+
     for (const name of Object.keys(interfaces)) {
       const netList = interfaces[name];
       if (!netList) continue;
       for (const net of netList) {
-        if (net.family === 'IPv4' && !net.internal) {
-          return net.address;
+        if (
+          net.family === 'IPv4' &&
+          !net.internal &&
+          !net.address.startsWith('169.254.')
+        ) {
+          const network = {
+            address: net.address,
+            netmask: net.netmask || '255.255.255.0',
+          };
+          const key = `${network.address}/${network.netmask}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            networks.push(network);
+          }
         }
       }
     }
-    return '127.0.0.1';
+
+    return networks;
   }
+
+  private refreshLocalNetworks(): void {
+    if (!this.isRunning) return;
+
+    const nextNetworks = this.detectLocalNetworks();
+    const currentKey = this.localNetworks.map((network) => `${network.address}/${network.netmask}`).join('|');
+    const nextKey = nextNetworks.map((network) => `${network.address}/${network.netmask}`).join('|');
+    if (currentKey === nextKey) return;
+
+    this.localNetworks = nextNetworks;
+    this.localIp = nextNetworks[0]?.address || '127.0.0.1';
+    this.udpDiscovery?.setNetworks(nextNetworks);
+    console.log(
+      `[Subnet:Connection] Local network interfaces changed: ${nextNetworks.map((network) => network.address).join(', ') || 'none'}`
+    );
+    this.emitStatusChanged();
+  }
+
+  private clearReconnect(peerId: string): void {
+    const timer = this.reconnectTimers.get(peerId);
+    if (timer) clearTimeout(timer);
+    this.reconnectTimers.delete(peerId);
+    this.reconnectAttempts.delete(peerId);
+  }
+
+  private scheduleReconnect(peerId: string, delayOverrideMs?: number): void {
+    if (!this.isRunning || !this.discoveredPeers.has(peerId)) return;
+    if (this.isPeerConnected(peerId) || this.pendingOutbound.has(peerId)) return;
+    if (this.reconnectTimers.has(peerId)) return;
+
+    const attempt = this.reconnectAttempts.get(peerId) || 0;
+    const delay =
+      delayOverrideMs ??
+      Math.min(this.reconnectMaxDelayMs, this.reconnectBaseDelayMs * 2 ** Math.min(attempt, 5));
+    this.reconnectAttempts.set(peerId, attempt + 1);
+
+    const timer = setTimeout(() => {
+      this.reconnectTimers.delete(peerId);
+      if (!this.isRunning || !this.discoveredPeers.has(peerId)) return;
+
+      this.connectToPeer(peerId)
+        .then((connection) => {
+          if (!connection || connection.state === 'closed') {
+            this.scheduleReconnect(peerId);
+          }
+        })
+        .catch((error: Error) => {
+          console.log(`[Subnet:Connection] Reconnect attempt failed for ${peerId.slice(0, 8)}: ${error.message}`);
+          this.scheduleReconnect(peerId);
+        });
+    }, delay);
+    this.reconnectTimers.set(peerId, timer);
+  }
+}
+
+function normalizeListeningPort(value: unknown): number | undefined {
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < 1024 || value > 65534) {
+    return undefined;
+  }
+  return value;
 }

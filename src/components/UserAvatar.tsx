@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Laptop } from 'lucide-react';
-import { getPresetAvatar } from '../utils/avatars';
+import { getPresetAvatar, PRESET_AVATARS } from '../utils/avatars';
 
 interface UserAvatarProps {
   avatarType?: 'default' | 'preset' | 'custom' | 'mascot';
@@ -10,6 +10,8 @@ interface UserAvatarProps {
   fallbackIconColor?: string;
   alt?: string;
   name?: string;
+  /** Use an illustrated avatar when a remote custom photo is unavailable. */
+  fallbackToPreset?: boolean;
 }
 
 const PASTEL_PALETTE = [
@@ -47,6 +49,14 @@ function getMonogram(name: string): string {
   return /[a-zA-Z0-9]/.test(firstChar) ? firstChar.toUpperCase() : '';
 }
 
+function getFallbackPreset(name: string) {
+  let hash = 0;
+  for (const char of name || 'SubnetPeer') {
+    hash = (hash * 31 + char.charCodeAt(0)) | 0;
+  }
+  return PRESET_AVATARS[Math.abs(hash) % PRESET_AVATARS.length];
+}
+
 export default function UserAvatar({
   avatarType = 'default',
   avatarValue = '',
@@ -55,11 +65,14 @@ export default function UserAvatar({
   fallbackIconColor,
   alt = 'Avatar',
   name,
+  fallbackToPreset = false,
 }: UserAvatarProps): React.JSX.Element {
   const [imgError, setImgError] = useState(false);
   const displayName = name || (alt !== 'Avatar' ? alt : '');
   const pastel = getDeterministicPastel(displayName || 'SubnetPeer');
   const monogram = getMonogram(displayName);
+
+  const fallbackPreset = fallbackToPreset ? getFallbackPreset(displayName) : undefined;
 
   // Priority 1: Preset Avatar
   if (avatarType === 'preset' && avatarValue) {
@@ -109,6 +122,27 @@ export default function UserAvatar({
           style={{ width: '100%', height: '100%', objectFit: 'cover' }}
           onError={() => setImgError(true)}
         />
+      </div>
+    );
+  }
+
+  if (fallbackPreset) {
+    return (
+      <div
+        className={`user-avatar-wrap preset-avatar ${className}`}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: '50%',
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0,
+        }}
+        title={fallbackPreset.name}
+      >
+        {fallbackPreset.svg({ size })}
       </div>
     );
   }

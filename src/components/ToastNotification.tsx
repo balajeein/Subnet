@@ -86,6 +86,7 @@ export default function ToastNotification({
                   size={36}
                   name={inv.senderName}
                   alt={inv.senderName}
+                  fallbackToPreset
                   fallbackIconColor="#B58AE8"
                 />
               </div>

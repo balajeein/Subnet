@@ -9,6 +9,7 @@ export interface Peer {
   avatar?: ProfileAvatarMetadata;
   host?: string;
   port?: number;
+  filePort?: number;
   lastSeen?: number;
 }
 
@@ -17,6 +18,7 @@ export interface LocalProfile {
   name: string;
   avatar?: ProfileAvatarMetadata;
   deviceModel?: string;
+  filePort?: number;
 }
 
 export interface NetworkStatus {
@@ -25,6 +27,17 @@ export interface NetworkStatus {
   peerCount: number;
   connectedPeerCount?: number;
   localIp?: string;
+  filePort?: number;
+  preferredPort?: number;
+  portMode?: 'fixed' | 'fallback' | 'ephemeral';
+  discovery?: {
+    bonjour: 'active' | 'unavailable' | 'disabled';
+    udp: 'active' | 'unavailable' | 'disabled';
+    interfaces: string[];
+    broadcasts: string[];
+    lastError?: string;
+  };
+  firewallHints?: string[];
 }
 
 export interface FileAttachmentMetadata {
@@ -166,6 +179,7 @@ export interface UserSettings {
   soundEnabled?: boolean;
   shareAvatarWithPeers?: boolean;
   peopleCanFindMe?: boolean;
+  listeningPort?: number;
 }
 
 export interface SubnetAPI {
@@ -187,6 +201,7 @@ export interface SubnetAPI {
 
   getSettings: () => Promise<UserSettings>;
   updateSettings: (settings: Partial<UserSettings>) => Promise<UserSettings>;
+  copyText?: (text: string) => Promise<{ success: boolean; error?: string }>;
   selectAvatarFile: () => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
   getSystemAvatar: () => Promise<{ success: boolean; dataUrl?: string; error?: string }>;
 

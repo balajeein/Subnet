@@ -1,5 +1,6 @@
 import { createServer } from 'vite';
 import { spawn, execSync } from 'node:child_process';
+import crypto from 'node:crypto';
 import electron from 'electron';
 import { watch } from 'node:fs';
 import path from 'node:path';
@@ -30,6 +31,9 @@ const electronEnv = {
   ...process.env,
   NODE_ENV: 'development',
   VITE_DEV_SERVER_URL: devServerUrl,
+  // Keep each terminal's dev instance separate so local testing can discover
+  // multiple Subnet processes instead of sharing one peer identity/history.
+  SUBNET_INSTANCE_ID: process.env.SUBNET_INSTANCE_ID || `${process.pid}-${crypto.randomUUID().slice(0, 8)}`,
 };
 
 function launchElectron() {

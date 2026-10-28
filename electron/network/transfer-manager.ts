@@ -292,6 +292,84 @@ export class FileTransferManager extends EventEmitter {
   }
 
   /**
+   * Streams raw binary chunks for the dedicated file socket. Keeping file data
+   * off the control WebSocket avoids Base64 expansion and prevents a large
+   * transfer from competing with chat messages for the 64KB envelope limit.
+   */
+  public async streamFileBinary(
+    transferId: string,
+    sendChunk: (chunk: Buffer, chunkIndex: number, totalChunks: number) => Promise<boolean> | boolean,
+    isConnectionAlive?: () => boolean
+  ): Promise<void> {
+    const transfer = this.outboundTransfers.get(transferId);
+    if (!transfer) throw new Error(`Transfer ${transferId} not found`);
+    if (transfer.isCancelled) return;
+
+    transfer.isStreaming = true;
+    transfer.transferredBytes = 0;
+    transfer.lastProgressTime = 0;
+    const stream = fs.createReadStream(transfer.filePath, { highWaterMark: CHUNK_SIZE });
+    let chunkIndex = 0;
+
+    try {
+      for await (const rawChunk of stream) {
+        if (transfer.isCancelled) {
+          stream.destroy();
+          break;
+        }
+        if (isConnectionAlive && !isConnectionAlive()) {
+          stream.destroy();
+          throw new Error('Peer connection closed during binary transfer');
+        }
+        const buf = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+        if (!(await sendChunk(buf, chunkIndex, transfer.metadata.totalChunks))) {
+          stream.destroy();
+          throw new Error('Socket closed during binary transfer');
+        }
+        chunkIndex++;
+        transfer.transferredBytes += buf.length;
+        this.emitSenderProgress(transfer);
+        await new Promise((resolve) => setImmediate(resolve));
+      }
+    } catch (err: any) {
+      if (!transfer.isCancelled) {
+        this.emit('progress', {
+          transferId,
+          role: 'sender',
+          transferredBytes: transfer.transferredBytes,
+          totalBytes: transfer.metadata.fileSize,
+          percent: 0,
+          status: 'failed',
+          error: err.message || 'Binary stream error',
+        } as TransferProgressEvent);
+      }
+      throw err;
+    } finally {
+      transfer.isStreaming = false;
+    }
+  }
+
+  public async handleIncomingBinaryChunk(
+    transferId: string,
+    chunkIndex: number,
+    totalChunks: number,
+    data: Buffer
+  ): Promise<{ completed: boolean; success: boolean; duplicate?: boolean; error?: string; finalPath?: string }> {
+    const transfer = this.inboundTransfers.get(transferId);
+    if (!transfer || transfer.metadata.totalChunks !== totalChunks) {
+      return { completed: false, success: false, error: 'Transfer not found or invalid chunk count' };
+    }
+    return this.handleIncomingChunk({
+      type: 'file_chunk',
+      transferId,
+      chunkIndex,
+      totalChunks,
+      data: data.toString('base64'),
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
    * Initializes download of an inbound file attachment.
    * Creates a .part temporary file and prepares SHA-256 verification.
    */
@@ -567,6 +645,26 @@ export class FileTransferManager extends EventEmitter {
 
   public getOutboundTransfer(transferId: string): OutboundTransfer | undefined {
     return this.outboundTransfers.get(transferId);
+  }
+
+  private emitSenderProgress(transfer: OutboundTransfer): void {
+    const now = Date.now();
+    const percent = Math.min(
+      100,
+      Math.round((transfer.transferredBytes / transfer.metadata.fileSize) * 100)
+    );
+    if (percent >= 100 || now - (transfer.lastProgressTime || 0) >= 100) {
+      transfer.lastProgressTime = now;
+      this.emit('progress', {
+        transferId: transfer.transferId,
+        role: 'sender',
+        transferredBytes: transfer.transferredBytes,
+        totalBytes: transfer.metadata.fileSize,
+        percent,
+        status: percent >= 100 ? 'completed' : 'transferring',
+        localPath: transfer.filePath,
+      } as TransferProgressEvent);
+    }
   }
 
   private computeFileSha256(filePath: string): Promise<string> {

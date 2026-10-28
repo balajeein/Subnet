@@ -67,6 +67,7 @@ export interface HandshakePayload {
   avatar?: ProfileAvatarMetadata;
   version: string;
   timestamp: number;
+  filePort?: number;
 }
 
 export interface HandshakeAckPayload {
@@ -76,6 +77,7 @@ export interface HandshakeAckPayload {
   avatar?: ProfileAvatarMetadata;
   version: string;
   timestamp: number;
+  filePort?: number;
 }
 
 export interface PingPayload {
@@ -244,6 +246,7 @@ export interface FileRequestPayload {
   senderId: string;
   recipientId: string;
   startIndex?: number;
+  transport?: 'binary' | 'control';
   timestamp: number;
 }
 
@@ -361,6 +364,9 @@ export function validateHandshake(data: unknown): HandshakePayload | null {
       avatar: validateProfileAvatar(d.avatar),
       version: d.version.trim(),
       timestamp: d.timestamp,
+      filePort: typeof d.filePort === 'number' && Number.isInteger(d.filePort) && d.filePort > 0 && d.filePort <= 65535
+        ? d.filePort
+        : undefined,
     };
   }
   return null;
@@ -388,6 +394,9 @@ export function validateHandshakeAck(data: unknown): HandshakeAckPayload | null 
       avatar: validateProfileAvatar(d.avatar),
       version: d.version.trim(),
       timestamp: d.timestamp,
+      filePort: typeof d.filePort === 'number' && Number.isInteger(d.filePort) && d.filePort > 0 && d.filePort <= 65535
+        ? d.filePort
+        : undefined,
     };
   }
   return null;
@@ -872,12 +881,16 @@ export function validateFileRequest(data: unknown): FileRequestPayload | null {
     if (d.startIndex !== undefined && (typeof d.startIndex !== 'number' || !Number.isInteger(d.startIndex) || d.startIndex < 0)) {
       return null;
     }
+    if (d.transport !== undefined && d.transport !== 'binary' && d.transport !== 'control') {
+      return null;
+    }
     return {
       type: 'file_request',
       transferId: d.transferId.trim(),
       senderId: d.senderId.trim(),
       recipientId: d.recipientId.trim(),
       startIndex: typeof d.startIndex === 'number' ? d.startIndex : 0,
+      transport: d.transport === 'binary' || d.transport === 'control' ? d.transport : undefined,
       timestamp: d.timestamp,
     };
   }

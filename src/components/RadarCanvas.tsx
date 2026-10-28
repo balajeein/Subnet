@@ -339,6 +339,7 @@ export default function RadarCanvas({
                   size={46}
                   name={peer.name}
                   alt={peer.name}
+                  fallbackToPreset
                   fallbackIconColor="#B58AE8"
                 />
 

@@ -349,6 +349,7 @@ export default function ChatPane({
               size={32}
               name={activePeer.name}
               alt={activePeer.name}
+              fallbackToPreset
               fallbackIconColor={isPeerOnline ? '#B58AE8' : '#77717F'}
             />
           </div>
@@ -376,6 +377,7 @@ export default function ChatPane({
                 size={30}
                 name={activePeer.name}
                 alt={activePeer.name}
+                fallbackToPreset
                 fallbackIconColor="#B58AE8"
               />
             </div>

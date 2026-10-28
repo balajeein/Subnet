@@ -431,6 +431,7 @@ export default function Sidebar({
                           size={24}
                           name={conv.peerName}
                           alt={conv.peerName}
+                          fallbackToPreset
                           fallbackIconColor={isOnline ? '#B58AE8' : '#77717F'}
                         />
                         <span className={`online-indicator-dot ${isOnline ? 'online' : 'offline'}`} />

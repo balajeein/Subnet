@@ -2,6 +2,19 @@ import fs from 'fs';
 import path from 'path';
 import type { Message, Invitation, ConversationSummary, ProfileAvatarMetadata, FileAttachmentMetadata } from '../../src/types/subnet';
 
+export interface OutboxEntry {
+  id: string;
+  kind: 'direct' | 'room';
+  recipientId?: string;
+  roomId?: string;
+  payload: Record<string, unknown>;
+  localAttachmentPath?: string;
+  attempts: number;
+  nextAttemptAt: number;
+  lastError?: string;
+  createdAt: number;
+}
+
 export interface StoredConversation {
   peerId: string;
   peerName: string;
@@ -74,6 +87,7 @@ export interface UserSettings {
   soundEnabled: boolean;
   shareAvatarWithPeers?: boolean;
   peopleCanFindMe?: boolean;
+  listeningPort?: number;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -85,6 +99,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   soundEnabled: true,
   shareAvatarWithPeers: true,
   peopleCanFindMe: true,
+  listeningPort: 50000,
 };
 
 export interface ChatStoreData {
@@ -94,6 +109,7 @@ export interface ChatStoreData {
   closedRoomIds?: string[];
   cachedPeerAvatars?: Record<string, ProfileAvatarMetadata>;
   settings?: UserSettings;
+  outbox?: OutboxEntry[];
 }
 
 export class ChatStore {
@@ -105,6 +121,7 @@ export class ChatStore {
     closedRoomIds: [],
     cachedPeerAvatars: {},
     settings: { ...DEFAULT_USER_SETTINGS },
+    outbox: [],
   };
 
   constructor(customStoragePath?: string) {
@@ -138,7 +155,7 @@ export class ChatStore {
    */
   public load(): void {
     if (!fs.existsSync(this.storagePath)) {
-      this.data = { version: 1, conversations: {}, rooms: {} };
+      this.data = { version: 1, conversations: {}, rooms: {}, outbox: [] };
       return;
     }
 
@@ -162,6 +179,7 @@ export class ChatStore {
         closedRoomIds: Array.isArray(parsed.closedRoomIds) ? parsed.closedRoomIds : [],
         cachedPeerAvatars: parsed.cachedPeerAvatars && typeof parsed.cachedPeerAvatars === 'object' ? parsed.cachedPeerAvatars : {},
         settings: parsed.settings && typeof parsed.settings === 'object' ? parsed.settings : undefined,
+        outbox: Array.isArray(parsed.outbox) ? parsed.outbox : [],
       };
     } catch (err: any) {
       console.warn(
@@ -173,7 +191,7 @@ export class ChatStore {
       } catch (backupErr) {
         console.error(`[Subnet:Store] Failed to backup corrupted file:`, backupErr);
       }
-      this.data = { version: 1, conversations: {}, rooms: {}, closedRoomIds: [], cachedPeerAvatars: {} };
+      this.data = { version: 1, conversations: {}, rooms: {}, closedRoomIds: [], cachedPeerAvatars: {}, outbox: [] };
       this.save();
     }
   }
@@ -484,8 +502,44 @@ export class ChatStore {
       return false;
     }
     delete this.data.conversations[peerId];
+    this.data.outbox = (this.data.outbox || []).filter(
+      (entry) => !(entry.kind === 'direct' && entry.recipientId === peerId)
+    );
     this.save();
     return true;
+  }
+
+  public getOutbox(): OutboxEntry[] {
+    return [...(this.data.outbox || [])].sort((a, b) => a.nextAttemptAt - b.nextAttemptAt);
+  }
+
+  public enqueueOutbox(entry: OutboxEntry): void {
+    if (!this.data.outbox) this.data.outbox = [];
+    const existing = this.data.outbox.findIndex((item) => item.id === entry.id);
+    if (existing >= 0) {
+      this.data.outbox[existing] = entry;
+    } else {
+      this.data.outbox.push(entry);
+    }
+    this.save();
+  }
+
+  public updateOutbox(id: string, patch: Partial<OutboxEntry>): boolean {
+    const entry = (this.data.outbox || []).find((item) => item.id === id);
+    if (!entry) return false;
+    Object.assign(entry, patch);
+    this.save();
+    return true;
+  }
+
+  public removeOutbox(id: string): boolean {
+    const before = (this.data.outbox || []).length;
+    this.data.outbox = (this.data.outbox || []).filter((entry) => entry.id !== id);
+    if (this.data.outbox.length !== before) {
+      this.save();
+      return true;
+    }
+    return false;
   }
 
   // --- Room Persistence Methods ---

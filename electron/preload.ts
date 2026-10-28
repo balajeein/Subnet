@@ -100,6 +100,13 @@ const subnetBridge: SubnetAPI = {
     return ipcRenderer.invoke('subnet:update-settings', settings);
   },
 
+  copyText: (text: string): Promise<{ success: boolean; error?: string }> => {
+    if (typeof text !== 'string' || !text) {
+      return Promise.resolve({ success: false, error: 'Clipboard text is empty' });
+    }
+    return ipcRenderer.invoke('subnet:copy-text', text.slice(0, 10000));
+  },
+
   selectAvatarFile: (): Promise<{ success: boolean; dataUrl?: string; error?: string }> => {
     return ipcRenderer.invoke('subnet:select-avatar-file');
   },

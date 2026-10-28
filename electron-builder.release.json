@@ -1,0 +1,33 @@
+{
+  "appId": "com.subnet.app",
+  "productName": "Subnet",
+  "icon": "build/icon.icns",
+  "directories": {
+    "output": "release/public"
+  },
+  "files": [
+    "dist/**/*",
+    "dist-electron/**/*",
+    "package.json"
+  ],
+  "mac": {
+    "category": "public.app-category.social-networking",
+    "target": [
+      "dmg",
+      "zip"
+    ],
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "electron/entitlements.mac.plist",
+    "entitlementsInherit": "electron/entitlements.mac.inherit.plist",
+    "extendInfo": {
+      "NSLocalNetworkUsageDescription": "Subnet uses your local network to discover and connect with nearby devices without internet access.",
+      "NSBonjourServices": [
+        "_subnet._tcp",
+        "_subnet-room._tcp"
+      ],
+      "NSCameraUsageDescription": "Subnet requires camera access to capture photos and record video messages to share with peers on your local network.",
+      "NSMicrophoneUsageDescription": "Subnet requires microphone access to record audio in video messages to share with peers on your local network."
+    }
+  }
+}

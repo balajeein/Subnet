@@ -22,6 +22,7 @@ export interface RemotePeerInfo {
   name: string;
   version: string;
   avatar?: ProfileAvatarMetadata;
+  filePort?: number;
 }
 
 export const MAX_SOCKET_BUFFERED_AMOUNT = 2 * 1024 * 1024; // 2MB bounded backpressure
@@ -104,6 +105,7 @@ export class PeerConnection extends EventEmitter {
       avatar: this.localAvatar,
       version: PROTOCOL_VERSION,
       timestamp: Date.now(),
+      filePort: this.localProfile.filePort,
     };
     this.sendEnvelope(handshake);
   }
@@ -144,6 +146,7 @@ export class PeerConnection extends EventEmitter {
           name: envelope.name,
           version: envelope.version,
           avatar: envelope.avatar,
+          filePort: envelope.filePort,
         };
 
         console.log(`[Subnet:Handshake] Inbound handshake received from "${envelope.name}" (${envelope.peerId.slice(0, 8)}). Sending handshake_ack...`);
@@ -156,6 +159,7 @@ export class PeerConnection extends EventEmitter {
           avatar: this.localAvatar,
           version: PROTOCOL_VERSION,
           timestamp: Date.now(),
+          filePort: this.localProfile.filePort,
         };
         this.sendEnvelope(ack);
 
@@ -169,6 +173,7 @@ export class PeerConnection extends EventEmitter {
           name: envelope.name,
           version: envelope.version,
           avatar: envelope.avatar,
+          filePort: envelope.filePort,
         };
 
         console.log(`[Subnet:Handshake] Outbound handshake acknowledged by "${envelope.name}" (${envelope.peerId.slice(0, 8)}).`);

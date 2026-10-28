@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  clipboard,
   ipcMain,
   dialog,
   nativeImage,
@@ -13,10 +14,10 @@ import {
 import path from 'path';
 import os from 'os';
 import fs from 'fs';
-import crypto from 'crypto';
 import url from 'url';
 import { ConnectionManager } from './network/connection-manager';
 import { getSystemAccountPicture } from './utils/system-avatar';
+import { loadOrCreateLocalPeerId } from './store/local-identity';
 
 // Register standard custom media scheme before app is ready
 protocol.registerSchemesAsPrivileged([
@@ -46,14 +47,33 @@ import type {
 
 let mainWindow: BrowserWindow | null = null;
 let connectionManager: ConnectionManager | null = null;
+let localProfile: LocalProfile | null = null;
 
-// Generate stable per-launch session peer ID
-const localPeerId = crypto.randomUUID();
-const localProfile: LocalProfile = {
-  id: localPeerId,
-  name: `${os.userInfo().username}'s ${os.platform() === 'darwin' ? 'Mac' : 'Device'}`,
-  deviceModel: os.hostname(),
-};
+// Each `npm run dev` terminal gets its own Electron profile. Without this,
+// multiple source instances share Electron's default userData directory and
+// therefore reuse the same persisted peer ID. Discovery then correctly filters
+// the other local process as if it were the same device.
+const developmentInstanceId = process.env.SUBNET_INSTANCE_ID?.trim();
+if (developmentInstanceId) {
+  const safeInstanceId = developmentInstanceId.replace(/[^a-zA-Z0-9._-]/g, '-').slice(0, 80);
+  const sharedUserDataPath = app.getPath('userData');
+  app.setPath('userData', path.join(sharedUserDataPath, 'dev-instances', safeInstanceId));
+  console.log(`[Subnet:Runtime] Isolated development profile: ${safeInstanceId}`);
+}
+
+function initializeLocalProfile(): LocalProfile {
+  const identityPath = path.join(app.getPath('userData'), 'identity.json');
+  const peerId = loadOrCreateLocalPeerId(identityPath);
+  localProfile = {
+    id: peerId,
+    name: `${os.userInfo().username}'s ${os.platform() === 'darwin' ? 'Mac' : 'Device'}`,
+    deviceModel: os.hostname(),
+  };
+  console.log(
+    `[Subnet:Identity] Using persistent local peer ID ${peerId.slice(0, 8)} (${app.getPath('userData')})`
+  );
+  return localProfile;
+}
 
 function createWindow(): void {
   // Configure Electron session permission handlers for camera and microphone
@@ -109,6 +129,9 @@ function createWindow(): void {
 }
 
 function setupNetworking(): void {
+  if (!localProfile) {
+    throw new Error('Local profile has not been initialized');
+  }
   connectionManager = new ConnectionManager(localProfile);
 
   // Forward network & chat events over IPC to the sandboxed renderer
@@ -245,6 +268,9 @@ async function ensureDefaultDeviceAvatar(): Promise<void> {
 
 // IPC Handlers with defensive parameter validation
 ipcMain.handle('subnet:get-profile', async (): Promise<LocalProfile> => {
+  if (!localProfile) {
+    throw new Error('Local profile has not been initialized');
+  }
   if (connectionManager) {
     const settings = connectionManager.getSettings();
     return {
@@ -794,6 +820,19 @@ ipcMain.handle(
   }
 );
 
+ipcMain.handle('subnet:copy-text', async (_event, value: unknown) => {
+  if (typeof value !== 'string' || !value) {
+    return { success: false, error: 'Clipboard text is empty' };
+  }
+
+  try {
+    clipboard.writeText(value.slice(0, 10000));
+    return { success: true };
+  } catch (err: any) {
+    return { success: false, error: err?.message || 'Failed to write clipboard' };
+  }
+});
+
 ipcMain.handle(
   'subnet:request-media-permissions',
   async (_event, mediaTypes: Array<'camera' | 'microphone'>) => {
@@ -1005,6 +1044,8 @@ ipcMain.handle(
 );
 
 app.whenReady().then(() => {
+  initializeLocalProfile();
+
   // Protocol handler for serving local media files safely without CSP blocking or high memory
   protocol.handle('subnet-media', (request) => {
     try {

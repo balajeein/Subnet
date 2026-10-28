@@ -6,6 +6,7 @@ export interface BonjourDiscoveryOptions {
   localPeerId: string;
   displayName: string;
   port: number;
+  filePort?: number;
   discoverable?: boolean;
 }
 
@@ -19,6 +20,7 @@ export class BonjourDiscovery {
   private localPeerId: string;
   private displayName: string;
   private port: number;
+  private filePort?: number;
   private discoverable: boolean;
 
   // Track service identity mappings for reliable goodbye / teardown handling
@@ -28,6 +30,8 @@ export class BonjourDiscovery {
   // Track room identity mappings
   private roomFqdnToRoomId: Map<string, string> = new Map();
   private roomNameToRoomId: Map<string, string> = new Map();
+  private lastNetworkWarningAt = 0;
+  private lastError?: string;
 
   private onPeerDiscoveredCb?: (peer: Peer) => void;
   private onPeerLostCb?: (peerId: string) => void;
@@ -38,6 +42,7 @@ export class BonjourDiscovery {
     this.localPeerId = options.localPeerId;
     this.displayName = options.displayName;
     this.port = options.port;
+    this.filePort = options.filePort;
     this.discoverable = options.discoverable !== false;
   }
 
@@ -55,7 +60,33 @@ export class BonjourDiscovery {
     this.onRoomDiscoveredCb = onRoomDiscovered;
     this.onRoomLostCb = onRoomLost;
 
-    this.bonjour = new Bonjour();
+    // bonjour-service throws from its default error callback when a multicast
+    // send races with a Wi-Fi route change. Treat those route errors as a
+    // recoverable discovery interruption instead of crashing Electron.
+    this.bonjour = new Bonjour({}, (error: unknown) => {
+      const networkError = error as NodeJS.ErrnoException;
+      const transientNetworkErrors = new Set([
+        'EHOSTUNREACH',
+        'ENETUNREACH',
+        'ENETDOWN',
+        'EADDRNOTAVAIL',
+      ]);
+
+      if (transientNetworkErrors.has(networkError.code || '')) {
+        this.lastError = `${networkError.code}: ${networkError.message || 'local network unavailable'}`;
+        const now = Date.now();
+        if (now - this.lastNetworkWarningAt > 10_000) {
+          this.lastNetworkWarningAt = now;
+          console.warn(
+            `[Subnet:Discovery] Local network temporarily unavailable (${networkError.code}); discovery will retry.`
+          );
+        }
+        return;
+      }
+
+      this.lastError = networkError.message || String(networkError);
+      console.error('[Subnet:Discovery] Bonjour error:', networkError);
+    });
 
     if (this.discoverable) {
       this.publishPeerService();
@@ -156,6 +187,7 @@ export class BonjourDiscovery {
         id: this.localPeerId,
         name: this.displayName,
         v: PROTOCOL_VERSION,
+        ...(this.filePort ? { fp: String(this.filePort) } : {}),
       },
     });
   }
@@ -354,6 +386,7 @@ export class BonjourDiscovery {
       name,
       host,
       port: service.port,
+      filePort: parseOptionalPort(txt.fp),
       lastSeen: Date.now(),
     };
   }
@@ -432,4 +465,15 @@ export class BonjourDiscovery {
     this.roomFqdnToRoomId.clear();
     this.roomNameToRoomId.clear();
   }
+
+  public getLastError(): string | undefined {
+    return this.lastError;
+  }
+}
+
+function parseOptionalPort(value: unknown): number | undefined {
+  const port = typeof value === 'string' ? Number.parseInt(value, 10) : value;
+  return typeof port === 'number' && Number.isInteger(port) && port > 0 && port <= 65535
+    ? port
+    : undefined;
 }

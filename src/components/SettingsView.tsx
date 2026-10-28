@@ -34,6 +34,8 @@ interface SettingsViewProps {
   onShowToast: (message: string) => void;
 }
 
+type MediaPermission = 'not-determined' | 'granted' | 'denied' | 'restricted' | 'unknown';
+
 export default function SettingsView({
   localProfile,
   settings,
@@ -55,11 +57,47 @@ export default function SettingsView({
   const [isTechDetailsOpen, setIsTechDetailsOpen] = useState(false);
   const [copiedField, setCopiedField] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [mediaPermissions, setMediaPermissions] = useState<{
+    camera: MediaPermission;
+    microphone: MediaPermission;
+  }>({ camera: 'unknown', microphone: 'unknown' });
+  const [isRefreshingPermissions, setIsRefreshingPermissions] = useState(false);
 
   useEffect(() => {
     setTempAvatarType(settings.avatarType);
     setTempAvatarValue(settings.avatarValue);
   }, [settings.avatarType, settings.avatarValue]);
+
+  const refreshPermissions = async () => {
+    if (!window.subnet?.checkMediaPermissions) return;
+    setIsRefreshingPermissions(true);
+    try {
+      const [camera, microphone] = await Promise.all([
+        window.subnet.checkMediaPermissions('camera'),
+        window.subnet.checkMediaPermissions('microphone'),
+      ]);
+      setMediaPermissions({ camera: camera.status, microphone: microphone.status });
+    } catch (err) {
+      console.error('Failed to check media permissions:', err);
+      setMediaPermissions({ camera: 'unknown', microphone: 'unknown' });
+    } finally {
+      setIsRefreshingPermissions(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshPermissions();
+  }, []);
+
+  const requestPermission = async (type: 'camera' | 'microphone') => {
+    if (!window.subnet?.requestMediaPermissions) return;
+    try {
+      await window.subnet.requestMediaPermissions([type]);
+      await refreshPermissions();
+    } catch (err: any) {
+      onShowToast(err?.message || `Could not request ${type} access`);
+    }
+  };
 
   const handleOpenPicker = () => {
     setTempAvatarType(settings.avatarType);
@@ -202,7 +240,10 @@ export default function SettingsView({
   const handleCopy = async (fieldKey: string, value: string, label: string) => {
     if (!value || value === 'Unavailable') return;
     try {
-      await navigator.clipboard.writeText(value);
+      const result = window.subnet?.copyText
+        ? await window.subnet.copyText(value)
+        : await navigator.clipboard.writeText(value).then(() => ({ success: true, error: undefined }));
+      if (!result?.success) throw new Error(result?.error || 'Clipboard write failed');
       setCopiedField(fieldKey);
       onShowToast(`Copied ${label} to clipboard`);
       setTimeout(() => {
@@ -233,6 +274,18 @@ export default function SettingsView({
 
   const localIpDisplay = networkStatus?.localIp || 'Unavailable';
   const portDisplay = networkStatus?.port ? String(networkStatus.port) : 'Unavailable';
+  const filePortDisplay = networkStatus?.filePort ? String(networkStatus.filePort) : 'Unavailable';
+  const portModeDisplay = networkStatus?.portMode === 'fixed'
+    ? 'Fixed'
+    : networkStatus?.portMode === 'fallback'
+      ? 'Fallback'
+      : networkStatus?.portMode === 'ephemeral'
+        ? 'Automatic'
+        : 'Unavailable';
+  const discoveryDisplay = networkStatus?.discovery
+    ? `Bonjour ${networkStatus.discovery.bonjour} · UDP ${networkStatus.discovery.udp}`
+    : 'Unavailable';
+  const firewallHints = networkStatus?.firewallHints || [];
   const peerIdDisplay = localProfile?.id || 'Unavailable';
   const networkStatusDisplay = networkStatus
     ? networkStatus.isRunning
@@ -248,6 +301,21 @@ export default function SettingsView({
     typeof connectedPeersCount === 'number'
       ? `${connectedPeersCount} ${connectedPeersCount === 1 ? 'user' : 'users'} connected`
       : 'Unavailable';
+
+  const permissionLabel = (status: MediaPermission) => {
+    switch (status) {
+      case 'granted':
+        return 'Allowed';
+      case 'denied':
+        return 'Blocked';
+      case 'restricted':
+        return 'Restricted';
+      case 'not-determined':
+        return 'Not enabled';
+      default:
+        return 'Check settings';
+    }
+  };
 
   return (
     <div className="profile-settings-container">
@@ -407,6 +475,74 @@ export default function SettingsView({
         </div>
         */}
 
+        <div className="profile-card profile-permissions-card">
+          <div className="profile-card-heading">
+            <div>
+              <h2 className="profile-card-title">Permissions</h2>
+              <p className="profile-card-subtitle">
+                Subnet uses these permissions for discovery and media sharing.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="tech-refresh-btn profile-permissions-refresh"
+              onClick={() => void refreshPermissions()}
+              disabled={isRefreshingPermissions}
+              title="Refresh permission status"
+            >
+              <RefreshCw
+                className={isRefreshingPermissions ? 'spinning' : ''}
+                style={{ width: 13, height: 13 }}
+              />
+              <span>Refresh</span>
+            </button>
+          </div>
+
+          <div className="profile-permissions-list">
+            <div className="profile-permission-row">
+              <div className="profile-permission-icon"><ShieldCheck size={17} /></div>
+              <div className="profile-permission-meta">
+                <span className="profile-permission-title">Local Network</span>
+                <span className="profile-permission-description">
+                  Needed to find and connect with nearby users. Enable Subnet in System Settings → Privacy &amp; Security → Local Network.
+                </span>
+              </div>
+              <span className="profile-permission-status required">Required</span>
+            </div>
+
+            {(['camera', 'microphone'] as const).map((type) => {
+              const status = mediaPermissions[type];
+              return (
+                <div className="profile-permission-row" key={type}>
+                  <div className="profile-permission-icon"><Camera size={17} /></div>
+                  <div className="profile-permission-meta">
+                    <span className="profile-permission-title">
+                      {type === 'camera' ? 'Camera' : 'Microphone'}
+                    </span>
+                    <span className="profile-permission-description">
+                      Used for {type === 'camera' ? 'photos and videos' : 'audio in recorded videos'}.
+                    </span>
+                  </div>
+                  <div className="profile-permission-actions">
+                    <span className={`profile-permission-status ${status === 'granted' ? 'granted' : status === 'denied' || status === 'restricted' ? 'denied' : 'pending'}`}>
+                      {permissionLabel(status)}
+                    </span>
+                    {status !== 'granted' && window.subnet?.requestMediaPermissions && (
+                      <button
+                        type="button"
+                        className="profile-permission-request"
+                        onClick={() => void requestPermission(type)}
+                      >
+                        Allow
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
         {/* Technical Details Collapsible Card */}
         <div className="profile-card technical-details-card">
           <div
@@ -529,7 +665,55 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 4. Local User ID */}
+                {/* 4. File Transfer Port */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">File Transfer Port</span>
+                    <span className="tech-detail-hint">Port used for large file transfers</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-code-value">{filePortDisplay}</span>
+                    {filePortDisplay !== 'Unavailable' && (
+                      <button
+                        type="button"
+                        className={`tech-copy-btn ${copiedField === 'file-port' ? 'copied' : ''}`}
+                        onClick={() => handleCopy('file-port', filePortDisplay, 'File Transfer Port')}
+                        title={copiedField === 'file-port' ? 'Copied!' : 'Copy File Transfer Port'}
+                      >
+                        {copiedField === 'file-port' ? (
+                          <Check style={{ width: 12, height: 12, color: '#10b981' }} />
+                        ) : (
+                          <Copy style={{ width: 12, height: 12 }} />
+                        )}
+                        <span>{copiedField === 'file-port' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* 5. Port Mode */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Port Mode</span>
+                    <span className="tech-detail-hint">How the control port was selected</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-metric-value">{portModeDisplay}</span>
+                  </div>
+                </div>
+
+                {/* 6. Discovery */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Discovery</span>
+                    <span className="tech-detail-hint">Ways Subnet finds users nearby</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-metric-value tech-discovery-value">{discoveryDisplay}</span>
+                  </div>
+                </div>
+
+                {/* 7. Local User ID */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Local User ID</span>
@@ -557,7 +741,7 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 5. Nearby Users */}
+                {/* 8. Nearby Users */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Nearby Users</span>
@@ -568,7 +752,7 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 6. Connected Users */}
+                {/* 9. Connected Users */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Connected Users</span>
@@ -579,7 +763,7 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 7. Transport */}
+                {/* 10. Transport */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Transport</span>
@@ -590,6 +774,14 @@ export default function SettingsView({
                   </div>
                 </div>
               </div>
+              {firewallHints.length > 0 && (
+                <div className="tech-diagnostics-note" role="status">
+                  <span className="tech-diagnostics-note-title">Connection checks</span>
+                  <ul>
+                    {firewallHints.map((hint) => <li key={hint}>{hint}</li>)}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </div>

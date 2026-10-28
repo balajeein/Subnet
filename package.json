@@ -9,7 +9,9 @@
     "build:renderer": "vite build",
     "build": "npm run typecheck && npm run build:electron && npm run build:renderer",
     "typecheck": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
-    "test": "npm run build:electron && node --test --test-concurrency=1 dist-electron/network/__tests__/*.test.js"
+    "test": "NODE_ENV=test npm run build:electron && NODE_ENV=test node --test --test-concurrency=1 dist-electron/network/__tests__/*.test.js dist-electron/store/__tests__/*.test.js",
+    "package:mac:test": "CSC_IDENTITY_AUTO_DISCOVERY=false npx --yes electron-builder --config electron-builder.json --mac dmg --universal --publish never",
+    "release:mac": "bash scripts/release-mac.sh"
   },
   "keywords": [
     "p2p",

@@ -395,6 +395,7 @@ export default function RoomChatPane({
                                 size={24}
                                 name={peer.name}
                                 alt={peer.name}
+                                fallbackToPreset
                                 fallbackIconColor="#B58AE8"
                               />
                               <span className="popover-add-member-name">{peer.name}</span>
@@ -419,6 +420,7 @@ export default function RoomChatPane({
                                   size={24}
                                   name={peer.name}
                                   alt={peer.name}
+                                  fallbackToPreset
                                   fallbackIconColor="#B58AE8"
                                 />
                                 <span className="popover-add-member-name">{peer.name}</span>
@@ -448,6 +450,7 @@ export default function RoomChatPane({
                               size={24}
                               name={member.nickname}
                               alt={member.nickname}
+                              fallbackToPreset
                               fallbackIconColor="#B58AE8"
                             />
                           )}
@@ -583,6 +586,7 @@ export default function RoomChatPane({
                           size={22}
                           name={senderDisplayName}
                           alt={senderDisplayName}
+                          fallbackToPreset
                           fallbackIconColor="#B58AE8"
                         />
                       )}

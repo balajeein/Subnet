@@ -89,6 +89,7 @@ export default function RequestsView({
                       size={40}
                       name={inv.senderName}
                       alt={inv.senderName}
+                      fallbackToPreset
                       fallbackIconColor="#B58AE8"
                     />
                   </div>
