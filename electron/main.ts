@@ -380,6 +380,12 @@ ipcMain.handle(
     if (typeof p.peopleCanFindMe === 'boolean') {
       cleanPartial.peopleCanFindMe = p.peopleCanFindMe;
     }
+    if (typeof p.presenceServerUrl === 'string') {
+      const value = p.presenceServerUrl.trim();
+      if (!value || /^wss?:\/\//i.test(value)) {
+        cleanPartial.presenceServerUrl = value.slice(0, 500);
+      }
+    }
 
     if (connectionManager) {
       const updated = connectionManager.updateSettings(cleanPartial);

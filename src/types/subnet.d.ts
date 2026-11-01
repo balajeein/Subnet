@@ -11,6 +11,8 @@ export interface Peer {
   port?: number;
   filePort?: number;
   lastSeen?: number;
+  /** True when the presence service supplied a direct LAN candidate for this user. */
+  presenceReachable?: boolean;
 }
 
 export interface LocalProfile {
@@ -38,6 +40,10 @@ export interface NetworkStatus {
     lastError?: string;
   };
   firewallHints?: string[];
+  presence?: {
+    status: 'disabled' | 'connecting' | 'connected' | 'offline';
+    serverUrl?: string;
+  };
 }
 
 export interface FileAttachmentMetadata {
@@ -180,6 +186,8 @@ export interface UserSettings {
   shareAvatarWithPeers?: boolean;
   peopleCanFindMe?: boolean;
   listeningPort?: number;
+  /** Optional WebSocket/WSS endpoint used only for ephemeral radar presence. */
+  presenceServerUrl?: string;
 }
 
 export interface SubnetAPI {

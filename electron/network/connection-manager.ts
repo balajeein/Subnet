@@ -33,6 +33,7 @@ import {
 } from './protocol';
 import { ChatStore, StoredRoom, RoomMember, UserSettings, OutboxEntry } from '../store/chat-store';
 import { FileTransferManager, TransferProgressEvent } from './transfer-manager';
+import { PresenceClient, createPresenceScopeToken, PresenceStatus } from './presence-client';
 import type {
   LocalProfile,
   NetworkStatus,
@@ -48,7 +49,7 @@ import type {
   DiscoveredRoom,
 } from '../../src/types/subnet';
 
-type DiscoverySource = 'bonjour' | 'udp';
+type DiscoverySource = 'bonjour' | 'udp' | 'presence';
 type LocalNetwork = { address: string; netmask: string };
 
 export class ConnectionManager extends EventEmitter {
@@ -57,6 +58,8 @@ export class ConnectionManager extends EventEmitter {
   private fileWss: WebSocketServer | null = null;
   private bonjour: BonjourDiscovery | null = null;
   private udpDiscovery: UdpDiscovery | null = null;
+  private presenceClient: PresenceClient | null = null;
+  private presenceStatus: PresenceStatus = 'disabled';
   private port = 0;
   private filePort = 0;
   private preferredPort = 50000;
@@ -233,6 +236,8 @@ export class ConnectionManager extends EventEmitter {
       );
     }
 
+    await this.startPresenceClient();
+
     this.isRunning = true;
     this.startOutboxRetryLoop();
     void this.flushOutbox();
@@ -245,6 +250,47 @@ export class ConnectionManager extends EventEmitter {
     this.emitStatusChanged();
 
     return this.getNetworkStatus();
+  }
+
+  private async startPresenceClient(): Promise<void> {
+    const settings = this.chatStore.getSettings();
+    const serverUrl = settings.presenceServerUrl?.trim() || '';
+    if (!serverUrl) {
+      this.presenceStatus = 'disabled';
+      return;
+    }
+
+    const localAvatar = this.getLocalAvatarForNetwork();
+    this.presenceClient = new PresenceClient({
+      serverUrl,
+      peerId: this.localProfile.id,
+      displayName: this.localProfile.name,
+      avatar: localAvatar,
+      host: this.localIp,
+      port: this.port,
+      filePort: this.filePort,
+      scopeToken: createPresenceScopeToken(this.getPresenceScopeNetworks()),
+      discoverable: settings.peopleCanFindMe !== false,
+    });
+    this.presenceClient.on('peer-discovered', (peer: Peer) => this.handlePeerDiscovered(peer, 'presence'));
+    this.presenceClient.on('peer-lost', (peerId: string) => this.handlePeerLost(peerId, 'presence'));
+    this.presenceClient.on('status-changed', (status: PresenceStatus) => {
+      this.presenceStatus = status;
+      this.emitStatusChanged();
+    });
+    await this.presenceClient.start();
+  }
+
+  private getLocalAvatarForNetwork(): ProfileAvatarMetadata | undefined {
+    const settings = this.chatStore.getSettings();
+    return settings.shareAvatarWithPeers !== false && settings.avatarType !== 'default'
+      ? { avatarType: settings.avatarType, avatarValue: settings.avatarValue }
+      : undefined;
+  }
+
+  private getPresenceScopeNetworks(): LocalNetwork[] {
+    const selected = this.localNetworks.find((network) => network.address === this.localIp);
+    return selected ? [selected] : this.localNetworks;
   }
 
   private startWebSocketServer(preferredPort: number): Promise<void> {
@@ -2040,6 +2086,8 @@ export class ConnectionManager extends EventEmitter {
     const isNew = !this.discoveredPeers.has(peer.id);
     const existing = this.discoveredPeers.get(peer.id);
     const cachedAvatar = this.chatStore.getPeerAvatar(peer.id);
+    const sources = this.peerDiscoverySources.get(peer.id);
+    const hasLocalDiscoverySource = Boolean(sources?.has('bonjour') || sources?.has('udp'));
 
     const mergedPeer: Peer = {
       ...existing,
@@ -2047,6 +2095,15 @@ export class ConnectionManager extends EventEmitter {
       avatar: existing?.avatar || peer.avatar || cachedAvatar,
       lastSeen: Date.now(),
     };
+
+    // A presence update can remove a previously advertised LAN candidate when
+    // the peer changes networks. Preserve LAN data when Bonjour/UDP still has
+    // a live candidate, but clear stale presence-only candidates otherwise.
+    if (source === 'presence' && !peer.host && !hasLocalDiscoverySource) {
+      delete mergedPeer.host;
+      delete mergedPeer.port;
+      delete mergedPeer.filePort;
+    }
 
     this.discoveredPeers.set(peer.id, mergedPeer);
     this.chatStore.updatePeerName(peer.id, peer.name);
@@ -2093,19 +2150,26 @@ export class ConnectionManager extends EventEmitter {
 
     this.discoveredPeers.delete(peerId);
 
-    const active = this.activeConnections.get(peerId);
-    if (active) {
-      active.close(1000, 'Peer disappeared from local network');
-      this.activeConnections.delete(peerId);
+    // A presence-server timeout means only that the radar session is stale.
+    // Do not tear down an already healthy direct LAN chat because the optional
+    // discovery service is temporarily unreachable.
+    if (source !== 'presence') {
+      const active = this.activeConnections.get(peerId);
+      if (active) {
+        active.close(1000, 'Peer disappeared from local network');
+        this.activeConnections.delete(peerId);
+      }
+
+      const pending = this.pendingOutbound.get(peerId);
+      if (pending) {
+        pending.close(1000, 'Peer disappeared from local network');
+        this.pendingOutbound.delete(peerId);
+      }
     }
 
-    const pending = this.pendingOutbound.get(peerId);
-    if (pending) {
-      pending.close(1000, 'Peer disappeared from local network');
-      this.pendingOutbound.delete(peerId);
+    if (source !== 'presence') {
+      this.checkHostOfflineForRooms(peerId);
     }
-
-    this.checkHostOfflineForRooms(peerId);
     this.clearReconnect(peerId);
 
     this.emit('peer-lost', peerId);
@@ -2159,6 +2223,10 @@ export class ConnectionManager extends EventEmitter {
         broadcasts,
         lastError: discoveryError,
       },
+      presence: {
+        status: this.presenceStatus,
+        serverUrl: this.chatStore.getSettings().presenceServerUrl || undefined,
+      },
       firewallHints,
     };
   }
@@ -2210,8 +2278,25 @@ export class ConnectionManager extends EventEmitter {
           ? { avatarType: updated.avatarType, avatarValue: updated.avatarValue }
           : { avatarType: 'default', avatarValue: '' };
       this.broadcastProfileUpdate(avatarToBroadcast);
+      this.presenceClient?.updateEndpoint({ avatar: this.getLocalAvatarForNetwork() });
+    }
+    if (partial.peopleCanFindMe !== undefined) {
+      this.presenceClient?.updateEndpoint({ discoverable: updated.peopleCanFindMe !== false });
+    }
+    if (partial.presenceServerUrl !== undefined) {
+      void this.reconfigurePresenceClient(updated.presenceServerUrl || '');
     }
     return updated;
+  }
+
+  private async reconfigurePresenceClient(serverUrl: string): Promise<void> {
+    if (!this.presenceClient) {
+      if (serverUrl && this.isRunning) await this.startPresenceClient();
+      return;
+    }
+    await this.presenceClient.reconfigure(serverUrl);
+    this.presenceStatus = this.presenceClient.getStatus();
+    this.emitStatusChanged();
   }
 
   public broadcastProfileUpdate(avatar: ProfileAvatarMetadata): void {
@@ -2338,6 +2423,12 @@ export class ConnectionManager extends EventEmitter {
       conn.close(1001, 'Subnet shutting down');
     }
     this.pendingOutbound.clear();
+
+    if (this.presenceClient) {
+      await this.presenceClient.stop();
+      this.presenceClient = null;
+    }
+    this.presenceStatus = 'disabled';
 
     if (this.udpDiscovery) {
       await this.udpDiscovery.stop();
@@ -2882,6 +2973,10 @@ export class ConnectionManager extends EventEmitter {
     this.localNetworks = nextNetworks;
     this.localIp = nextNetworks[0]?.address || '127.0.0.1';
     this.udpDiscovery?.setNetworks(nextNetworks);
+    this.presenceClient?.updateEndpoint({
+      host: this.localIp,
+      scopeToken: createPresenceScopeToken(this.getPresenceScopeNetworks()),
+    });
     console.log(
       `[Subnet:Connection] Local network interfaces changed: ${nextNetworks.map((network) => network.address).join(', ') || 'none'}`
     );

@@ -15,6 +15,7 @@ import {
   User,
   Eye,
   EyeOff,
+  Globe2,
   // Sun,
   // Moon,
   // Monitor,
@@ -62,11 +63,17 @@ export default function SettingsView({
     microphone: MediaPermission;
   }>({ camera: 'unknown', microphone: 'unknown' });
   const [isRefreshingPermissions, setIsRefreshingPermissions] = useState(false);
+  const [presenceServerDraft, setPresenceServerDraft] = useState(settings.presenceServerUrl || '');
+  const [isSavingPresence, setIsSavingPresence] = useState(false);
 
   useEffect(() => {
     setTempAvatarType(settings.avatarType);
     setTempAvatarValue(settings.avatarValue);
   }, [settings.avatarType, settings.avatarValue]);
+
+  useEffect(() => {
+    setPresenceServerDraft(settings.presenceServerUrl || '');
+  }, [settings.presenceServerUrl]);
 
   const refreshPermissions = async () => {
     if (!window.subnet?.checkMediaPermissions) return;
@@ -96,6 +103,23 @@ export default function SettingsView({
       await refreshPermissions();
     } catch (err: any) {
       onShowToast(err?.message || `Could not request ${type} access`);
+    }
+  };
+
+  const handleSavePresenceServer = async () => {
+    const value = presenceServerDraft.trim();
+    if (value && !/^wss?:\/\//i.test(value)) {
+      onShowToast('Use a ws:// or wss:// presence server URL');
+      return;
+    }
+    setIsSavingPresence(true);
+    try {
+      await onUpdateSettings({ presenceServerUrl: value });
+      onShowToast(value ? 'Realtime radar presence enabled' : 'Realtime radar presence disabled');
+    } catch (err: any) {
+      onShowToast(err?.message || 'Could not update realtime presence');
+    } finally {
+      setIsSavingPresence(false);
     }
   };
 
@@ -285,6 +309,15 @@ export default function SettingsView({
   const discoveryDisplay = networkStatus?.discovery
     ? `Bonjour ${networkStatus.discovery.bonjour} · UDP ${networkStatus.discovery.udp}`
     : 'Unavailable';
+  const presenceDisplay = networkStatus?.presence?.status
+    ? networkStatus.presence.status === 'connected'
+      ? 'Connected'
+      : networkStatus.presence.status === 'connecting'
+        ? 'Connecting'
+        : networkStatus.presence.status === 'offline'
+          ? 'Offline'
+          : 'Disabled'
+    : 'Disabled';
   const firewallHints = networkStatus?.firewallHints || [];
   const peerIdDisplay = localProfile?.id || 'Unavailable';
   const networkStatusDisplay = networkStatus
@@ -543,6 +576,48 @@ export default function SettingsView({
           </div>
         </div>
 
+        <div className="profile-card profile-presence-card">
+          <div className="profile-card-heading">
+            <div className="profile-presence-heading">
+              <div className="profile-presence-icon"><Globe2 size={17} /></div>
+              <div>
+                <h2 className="profile-card-title">Realtime radar</h2>
+                <p className="profile-card-subtitle">
+                  Uses a temporary presence service to show online users. Messages and files stay direct over LAN.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="profile-presence-form">
+            <label className="profile-presence-label" htmlFor="presence-server-url">
+              Presence server URL
+            </label>
+            <div className="profile-presence-input-row">
+              <input
+                id="presence-server-url"
+                className="profile-presence-input"
+                type="url"
+                value={presenceServerDraft}
+                onChange={(event) => setPresenceServerDraft(event.target.value)}
+                placeholder="wss://presence.example.com"
+                spellCheck={false}
+                autoComplete="off"
+              />
+              <button
+                type="button"
+                className="profile-presence-save"
+                onClick={() => void handleSavePresenceServer()}
+                disabled={isSavingPresence || presenceServerDraft.trim() === (settings.presenceServerUrl || '').trim()}
+              >
+                {isSavingPresence ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            <p className="profile-presence-help">
+              Leave this empty to use local-only discovery. A server restart removes all presence automatically.
+            </p>
+          </div>
+        </div>
+
         {/* Technical Details Collapsible Card */}
         <div className="profile-card technical-details-card">
           <div
@@ -713,7 +788,18 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 7. Local User ID */}
+                {/* 7. Realtime radar presence */}
+                <div className="tech-detail-row">
+                  <div className="tech-detail-label-col">
+                    <span className="tech-detail-label">Realtime Radar</span>
+                    <span className="tech-detail-hint">Temporary server presence for the radar</span>
+                  </div>
+                  <div className="tech-detail-value-col">
+                    <span className="tech-metric-value">{presenceDisplay}</span>
+                  </div>
+                </div>
+
+                {/* 8. Local User ID */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Local User ID</span>
@@ -741,7 +827,7 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 8. Nearby Users */}
+                {/* 9. Nearby Users */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Nearby Users</span>
@@ -752,7 +838,7 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 9. Connected Users */}
+                {/* 10. Connected Users */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Connected Users</span>
@@ -763,7 +849,7 @@ export default function SettingsView({
                   </div>
                 </div>
 
-                {/* 10. Transport */}
+                {/* 11. Transport */}
                 <div className="tech-detail-row">
                   <div className="tech-detail-label-col">
                     <span className="tech-detail-label">Transport</span>

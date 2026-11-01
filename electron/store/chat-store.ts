@@ -88,6 +88,7 @@ export interface UserSettings {
   shareAvatarWithPeers?: boolean;
   peopleCanFindMe?: boolean;
   listeningPort?: number;
+  presenceServerUrl?: string;
 }
 
 export const DEFAULT_USER_SETTINGS: UserSettings = {
@@ -100,6 +101,7 @@ export const DEFAULT_USER_SETTINGS: UserSettings = {
   shareAvatarWithPeers: true,
   peopleCanFindMe: true,
   listeningPort: 50000,
+  presenceServerUrl: '',
 };
 
 export interface ChatStoreData {
