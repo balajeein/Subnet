@@ -5,6 +5,7 @@
 export const PROTOCOL_VERSION = '1.0.0';
 export const BONJOUR_SERVICE_TYPE = 'subnet'; // Translates to _subnet._tcp.local.
 export const BONJOUR_ROOM_SERVICE_TYPE = 'subnet-room'; // Translates to _subnet-room._tcp.local.
+export const BONJOUR_PRESENCE_SERVICE_TYPE = 'subnet-presence'; // Translates to _subnet-presence._tcp.local.
 export const MAX_MESSAGE_SIZE = 64 * 1024; // 64 KB message payload limit
 export const HANDSHAKE_TIMEOUT_MS = 6000; // 6 seconds to complete mutual handshake
 export const HEARTBEAT_INTERVAL_MS = 15000; // Ping every 15 seconds

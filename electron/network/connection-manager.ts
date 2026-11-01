@@ -34,6 +34,7 @@ import {
 import { ChatStore, StoredRoom, RoomMember, UserSettings, OutboxEntry } from '../store/chat-store';
 import { FileTransferManager, TransferProgressEvent } from './transfer-manager';
 import { PresenceClient, createPresenceScopeToken, PresenceStatus } from './presence-client';
+import { PresenceServerDiscovery } from './presence-server-discovery';
 import type {
   LocalProfile,
   NetworkStatus,
@@ -59,6 +60,7 @@ export class ConnectionManager extends EventEmitter {
   private bonjour: BonjourDiscovery | null = null;
   private udpDiscovery: UdpDiscovery | null = null;
   private presenceClient: PresenceClient | null = null;
+  private presenceServerDiscovery: PresenceServerDiscovery | null = null;
   private presenceStatus: PresenceStatus = 'disabled';
   private port = 0;
   private filePort = 0;
@@ -255,11 +257,16 @@ export class ConnectionManager extends EventEmitter {
   private async startPresenceClient(): Promise<void> {
     const settings = this.chatStore.getSettings();
     const serverUrl = settings.presenceServerUrl?.trim() || '';
-    if (!serverUrl) {
-      this.presenceStatus = 'disabled';
+    if (serverUrl) {
+      await this.createPresenceClient(serverUrl);
       return;
     }
 
+    await this.startAutomaticPresenceDiscovery();
+  }
+
+  private async createPresenceClient(serverUrl: string): Promise<void> {
+    const settings = this.chatStore.getSettings();
     const localAvatar = this.getLocalAvatarForNetwork();
     this.presenceClient = new PresenceClient({
       serverUrl,
@@ -279,6 +286,49 @@ export class ConnectionManager extends EventEmitter {
       this.emitStatusChanged();
     });
     await this.presenceClient.start();
+  }
+
+  private async startAutomaticPresenceDiscovery(): Promise<void> {
+    // Keep the deterministic networking test suite isolated from any real
+    // presence service running on the developer's LAN.
+    if (process.env.NODE_ENV === 'test') {
+      this.presenceStatus = 'disabled';
+      return;
+    }
+    if (this.presenceServerDiscovery) return;
+    this.presenceStatus = 'disabled';
+    const discovery = new PresenceServerDiscovery();
+    this.presenceServerDiscovery = discovery;
+    await discovery.start(
+      (serverUrl: string) => {
+        if (this.chatStore.getSettings().presenceServerUrl?.trim()) return;
+        void this.connectToAutomaticPresenceServer(serverUrl);
+      },
+      () => {
+        if (this.chatStore.getSettings().presenceServerUrl?.trim()) return;
+        void this.disconnectAutomaticPresenceServer();
+      }
+    );
+  }
+
+  private async connectToAutomaticPresenceServer(serverUrl: string): Promise<void> {
+    if (this.chatStore.getSettings().presenceServerUrl?.trim()) return;
+    if (this.presenceClient?.getServerUrl() === serverUrl) return;
+    if (this.presenceClient) {
+      await this.presenceClient.stop();
+      this.presenceClient = null;
+    }
+    await this.createPresenceClient(serverUrl);
+  }
+
+  private async disconnectAutomaticPresenceServer(): Promise<void> {
+    if (this.chatStore.getSettings().presenceServerUrl?.trim()) return;
+    if (this.presenceClient) {
+      await this.presenceClient.stop();
+      this.presenceClient = null;
+    }
+    this.presenceStatus = 'disabled';
+    this.emitStatusChanged();
   }
 
   private getLocalAvatarForNetwork(): ProfileAvatarMetadata | undefined {
@@ -2225,7 +2275,9 @@ export class ConnectionManager extends EventEmitter {
       },
       presence: {
         status: this.presenceStatus,
-        serverUrl: this.chatStore.getSettings().presenceServerUrl || undefined,
+        serverUrl: this.presenceClient?.getServerUrl()
+          || this.chatStore.getSettings().presenceServerUrl
+          || undefined,
       },
       firewallHints,
     };
@@ -2290,12 +2342,28 @@ export class ConnectionManager extends EventEmitter {
   }
 
   private async reconfigurePresenceClient(serverUrl: string): Promise<void> {
-    if (!this.presenceClient) {
-      if (serverUrl && this.isRunning) await this.startPresenceClient();
-      return;
+    if (this.presenceServerDiscovery) {
+      await this.presenceServerDiscovery.stop();
+      this.presenceServerDiscovery = null;
     }
-    await this.presenceClient.reconfigure(serverUrl);
-    this.presenceStatus = this.presenceClient.getStatus();
+    if (serverUrl) {
+      if (this.presenceClient) {
+        await this.presenceClient.reconfigure(serverUrl);
+      } else if (this.isRunning) {
+        await this.createPresenceClient(serverUrl);
+      }
+    } else {
+      if (this.presenceClient) {
+        await this.presenceClient.stop();
+        this.presenceClient = null;
+      }
+      if (this.isRunning) {
+        await this.startAutomaticPresenceDiscovery();
+      } else {
+        this.presenceStatus = 'disabled';
+      }
+    }
+    this.presenceStatus = this.presenceClient?.getStatus() || 'disabled';
     this.emitStatusChanged();
   }
 
@@ -2427,6 +2495,10 @@ export class ConnectionManager extends EventEmitter {
     if (this.presenceClient) {
       await this.presenceClient.stop();
       this.presenceClient = null;
+    }
+    if (this.presenceServerDiscovery) {
+      await this.presenceServerDiscovery.stop();
+      this.presenceServerDiscovery = null;
     }
     this.presenceStatus = 'disabled';
 

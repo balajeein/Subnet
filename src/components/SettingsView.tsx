@@ -613,7 +613,7 @@ export default function SettingsView({
               </button>
             </div>
             <p className="profile-presence-help">
-              Leave this empty to use local-only discovery. A server restart removes all presence automatically.
+              Leave this empty to find a presence server automatically on the local network. A server restart removes all presence automatically.
             </p>
           </div>
         </div>

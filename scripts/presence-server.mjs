@@ -1,5 +1,6 @@
 import http from 'node:http';
 import { WebSocketServer } from 'ws';
+import { Bonjour } from 'bonjour-service';
 
 const port = Number(process.env.PRESENCE_PORT || 8787);
 const host = process.env.PRESENCE_HOST || '0.0.0.0';
@@ -11,6 +12,8 @@ const httpServer = http.createServer((_request, response) => {
   response.end('Subnet presence service is running.\n');
 });
 const wss = new WebSocketServer({ server: httpServer, maxPayload: 256 * 1024 });
+let bonjour;
+let publishedService;
 
 function validPort(value) {
   return Number.isInteger(value) && value >= 1024 && value <= 65534;
@@ -41,8 +44,12 @@ function normalizeRegistration(value) {
   };
 }
 
+function isSameScope(record, viewer) {
+  return Boolean(record.scopeToken && viewer.scopeToken && record.scopeToken === viewer.scopeToken);
+}
+
 function publicPeer(record, viewer) {
-  const sameScope = Boolean(record.scopeToken && viewer.scopeToken && record.scopeToken === viewer.scopeToken);
+  const sameScope = isSameScope(record, viewer);
   return {
     peerId: record.peerId,
     name: record.name,
@@ -60,9 +67,10 @@ function send(socket, message) {
   if (socket.readyState === 1) socket.send(JSON.stringify(message));
 }
 
-function broadcast(messageFactory, exceptPeerId) {
+function broadcastToScope(scopeRecord, messageFactory, exceptPeerId) {
   for (const record of peers.values()) {
     if (record.peerId === exceptPeerId) continue;
+    if (!isSameScope(record, scopeRecord)) continue;
     send(record.socket, messageFactory(record));
   }
 }
@@ -71,6 +79,7 @@ function sendSnapshot(record) {
   const list = [];
   for (const candidate of peers.values()) {
     if (candidate.peerId === record.peerId) continue;
+    if (!isSameScope(candidate, record)) continue;
     list.push(publicPeer(candidate, record));
   }
   send(record.socket, { type: 'presence_snapshot', peers: list });
@@ -80,7 +89,7 @@ function removeRecord(peerId, socket) {
   const current = peers.get(peerId);
   if (!current || (socket && current.socket !== socket)) return;
   peers.delete(peerId);
-  broadcast(() => ({ type: 'presence_remove', peerId }));
+  broadcastToScope(current, () => ({ type: 'presence_remove', peerId }), peerId);
 }
 
 wss.on('connection', (socket) => {
@@ -114,6 +123,12 @@ wss.on('connection', (socket) => {
       try { previous.socket.close(4001, 'Replaced by a newer session'); } catch { /* noop */ }
     }
 
+    // If an existing session moved to a different LAN scope, remove its old
+    // radar entry from the previous scope before publishing the new one.
+    if (previous?.socket === socket && !isSameScope(previous, next)) {
+      broadcastToScope(previous, () => ({ type: 'presence_remove', peerId: next.peerId }), next.peerId);
+    }
+
     const record = { ...next, socket };
     peers.set(next.peerId, record);
     registeredPeerId = next.peerId;
@@ -122,7 +137,10 @@ wss.on('connection', (socket) => {
     // re-sending the same peer list every 15 seconds.
     if (isHeartbeat && previous?.socket === socket) return;
     sendSnapshot(record);
-    broadcast((viewer) => ({ type: 'presence_upsert', peer: publicPeer(record, viewer) }), next.peerId);
+    broadcastToScope(record, (viewer) => ({
+      type: 'presence_upsert',
+      peer: publicPeer(record, viewer),
+    }), next.peerId);
   });
 
   socket.on('close', () => {
@@ -143,9 +161,23 @@ setInterval(() => {
 httpServer.listen(port, host, () => {
   console.log(`Subnet presence service listening on ws://${host}:${port}`);
   console.log('Presence is ephemeral: no chat messages, files, or history are stored.');
+  try {
+    bonjour = new Bonjour();
+    publishedService = bonjour.publish({
+      name: `Subnet Presence-${port}`,
+      type: 'subnet-presence',
+      protocol: 'tcp',
+      port,
+    });
+    console.log(`Advertising presence service as _subnet-presence._tcp on port ${port}`);
+  } catch (error) {
+    console.warn(`Could not advertise presence service over Bonjour: ${error.message || error}`);
+  }
 });
 
 function shutdown() {
+  try { publishedService?.stop(); } catch { /* noop */ }
+  try { bonjour?.destroy(); } catch { /* noop */ }
   for (const record of peers.values()) {
     try { record.socket.close(1001, 'Presence service shutting down'); } catch { /* noop */ }
   }
