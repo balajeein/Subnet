@@ -138,7 +138,7 @@ Subnet has three main network paths:
    - Transfer progress, chunk validation, checksums, cancellation, and retry handling are included.
    - If a file transfer port is unavailable, Subnet can fall back to the control connection.
 
-The optional presence server is used for temporary radar presence when Bonjour or UDP discovery is unavailable. It shares discovery metadata and direct LAN endpoint information only. It does not relay chat messages or files.
+The optional presence server provides temporary radar visibility when Bonjour or UDP discovery is unavailable. It only exchanges discovery metadata and direct LAN connection details; chat messages and files are never relayed through the server.
 
 The presence server filters users by network scope. Users on unrelated networks or different locations are not shown in the same radar scope.
 
